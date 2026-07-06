@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Pessoas & Cultura | 2026</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+<div class="container">
+
+    <!-- ═══════════════════════════════════
+         SIDEBAR
+    ═══════════════════════════════════ -->
+    <aside class="sidebar" id="sidebar">
+<div class="sidebar-header">
+    <div class="logo-section">
+        <span class="logo-title">Pessoas &amp; Cultura</span>
+    </div>
+</div>
+
+        <nav class="nav-menu">
+            <div class="nav-item active" data-category="dashboard">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                <span class="nav-text">Visão Geral</span>
+            </div>
+            <div class="nav-item" data-category="atestados">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414A1 1 0 0119 8.414V19a2 2 0 01-2 2z"/></svg>
+                <span class="nav-text">Atestados</span>
+            </div>
+            <div class="nav-item" data-category="clima">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+                <span class="nav-text">Clima das Áreas</span>
+            </div>
+            <div class="nav-item" data-category="cotas">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+                <span class="nav-text">Cotas</span>
+            </div>
+            <div class="nav-item" data-category="movimentacoes">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
+                <span class="nav-text">Movimentações</span>
+            </div>
+            <div class="nav-item" data-category="offboarding">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 16l4-4-4-4"/><path d="M3 12h18"/><path d="M3 6h6M3 18h6"/></svg>
+                <span class="nav-text">Offboarding</span>
+            </div>
+            <div class="nav-item" data-category="recrutamento">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <span class="nav-text">Recrutamento &amp; Seleção</span>
+            </div>
+            <div class="nav-item nav-item-sub" data-category="reportSemanal" id="navReportSemanal" style="display:none">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                <span class="nav-text">Report Semanal</span>
+            </div>
+            <div class="nav-item" data-category="atingimentoMetas">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+                <span class="nav-text">Atingimento de Metas</span>
+            </div>
+            <div class="nav-item" data-category="periodoExperiencia">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 16l2 2 4-4"/></svg>
+                <span class="nav-text">Período de Experiência</span>
+            </div>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="footer-info">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <span id="lastUpdate">Aguardando dados</span>
+            </div>
+            <button class="btn-download-template" id="downloadTemplate">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Baixar modelo Excel
+            </button>
+        </div>
+    </aside>
+
+    <!-- ═══════════════════════════════════
+         MAIN
+    ═══════════════════════════════════ -->
+    <main class="main-content">
+
+        <!-- HEADER -->
+        <header class="header">
+            <div class="header-top">
+                <button class="btn-toggle-sidebar-mobile" id="toggleSidebarMobile" title="Abrir menu">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                </button>
+                <div class="header-info">
+                    <h1>Dashboard Pessoas &amp; Cultura <span class="title-year">| 2026</span></h1>
+                    <p id="headerSubtitle">Visão geral dos principais indicadores de gestão de pessoas</p>
+                </div>
+            </div>
+
+            <div class="header-controls">
+                <!-- Mês -->
+                <div class="filter-group">
+                    <label for="month-select">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        Mês/2026
+                    </label>
+                    <select id="month-select">
+                        <option value="">Todos os meses</option>
+                        <option value="01">Janeiro</option>
+                        <option value="02">Fevereiro</option>
+                        <option value="03">Março</option>
+                        <option value="04">Abril</option>
+                        <option value="05">Maio</option>
+                        <option value="06">Junho</option>
+                        <option value="07">Julho</option>
+                        <option value="08">Agosto</option>
+                        <option value="09">Setembro</option>
+                        <option value="10">Outubro</option>
+                        <option value="11">Novembro</option>
+                        <option value="12">Dezembro</option>
+                    </select>
+                </div>
+
+                <!-- Exportar -->
+                <button class="btn-export" id="exportBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Exportar
+                </button>
+
+                <!-- Importar -->
+                <label for="file-upload" class="btn-import">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Importar Excel
+                </label>
+                <input type="file" id="file-upload" accept=".xlsx,.xls,.csv" style="display:none">
+
+                <!-- Dark mode -->
+                <div class="theme-toggle-wrapper">
+                    <input type="checkbox" id="themeToggle" class="theme-toggle-checkbox">
+                    <label for="themeToggle" class="theme-toggle-label">
+                        <span class="toggle-ball"></span>
+                        <span class="toggle-icon-sun">☀️</span>
+                        <span class="toggle-icon-moon">🌙</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- File badge -->
+            <div class="file-badge" id="fileBadge" style="display:none">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <span id="fileNameBadge"></span>
+                <button class="file-badge-close" id="clearFile">✕</button>
+            </div>
+        </header>
+
+        <!-- KPI ROW -->
+        <div class="kpi-section">
+            <div class="kpi-container">
+                <div class="kpi-card kpi-blue">
+                    <div class="kpi-icon-wrap kpi-icon-blue">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+                    </div>
+                    <div class="kpi-content">
+                        <div class="kpi-label" id="label-kpi1">Headcount</div>
+                        <div class="kpi-value" id="kpi-v1">—</div>
+                        <div class="kpi-variation" id="var-kpi1"></div>
+                    </div>
+                    <div class="kpi-sparkline"><canvas id="spark1"></canvas></div>
+                </div>
+                <div class="kpi-card kpi-purple">
+                    <div class="kpi-icon-wrap kpi-icon-purple">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+                    </div>
+                    <div class="kpi-content">
+                        <div class="kpi-label" id="label-kpi2">Turnover (12m)</div>
+                        <div class="kpi-value" id="kpi-v2">—</div>
+                        <div class="kpi-variation" id="var-kpi2"></div>
+                    </div>
+                    <div class="kpi-sparkline"><canvas id="spark2"></canvas></div>
+                </div>
+                <div class="kpi-card kpi-teal">
+                    <div class="kpi-icon-wrap kpi-icon-teal">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    </div>
+                    <div class="kpi-content">
+                        <div class="kpi-label" id="label-kpi3">Absenteísmo</div>
+                        <div class="kpi-value" id="kpi-v3">—</div>
+                        <div class="kpi-sub" id="sub-kpi3"></div>
+                        <div class="kpi-variation" id="var-kpi3"></div>
+                    </div>
+                    <div class="kpi-sparkline"><canvas id="spark3"></canvas></div>
+                </div>
+                <div class="kpi-card kpi-green" id="card-inss">
+                    <div class="kpi-icon-wrap kpi-icon-green">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    </div>
+                    <div class="kpi-content">
+                        <div class="kpi-label" id="label-kpi4">Engajamento</div>
+                        <div class="kpi-value" id="kpi-v4">—</div>
+                        <div class="kpi-sub" id="sub-kpi4"></div>
+                        <div class="kpi-variation" id="var-kpi4"></div>
+                        <button class="turnover-ver-mais" id="turnoverVerMais" style="display:none" onclick="openTurnoverModal()">Ver mais</button>
+                    </div>
+                    <div class="kpi-sparkline"><canvas id="spark4"></canvas></div>
+                </div>
+                <div class="kpi-card kpi-orange" id="card-cids-psiq">
+                    <div class="kpi-icon-wrap kpi-icon-orange">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                    </div>
+                    <div class="kpi-content">
+                        <div class="kpi-label" id="label-kpi5">NPS eNPS</div>
+                        <div class="kpi-value" id="kpi-v5">—</div>
+                        <div class="kpi-sub" id="sub-kpi5"></div>
+                        <div class="kpi-variation" id="var-kpi5"></div>
+                    </div>
+                    <div class="kpi-sparkline"><canvas id="spark5"></canvas></div>
+                </div>
+                <div class="kpi-card kpi-pink">
+                    <div class="kpi-icon-wrap kpi-icon-pink">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    </div>
+                    <div class="kpi-content">
+                        <div class="kpi-label" id="label-kpi6">Custo / Colaborador</div>
+                        <div class="kpi-value" id="kpi-v6">—</div>
+                        <div class="kpi-sub" id="sub-kpi6"></div>
+                        <div class="kpi-variation" id="var-kpi6"></div>
+                    </div>
+                    <div class="kpi-sparkline"><canvas id="spark6"></canvas></div>
+                </div>
+                <div class="kpi-card kpi-blue" id="card-afastados-agora" style="display:none">
+                    <div class="kpi-icon-wrap kpi-icon-blue">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    </div>
+                    <div class="kpi-content">
+                        <div class="kpi-label" id="label-kpi7">Afastados no momento</div>
+                        <div class="kpi-value" id="kpi-v7">—</div>
+                        <div class="kpi-sub" id="sub-kpi7"></div>
+                        <div class="kpi-variation" id="var-kpi7"></div>
+                    </div>
+                    <div class="kpi-sparkline"><canvas id="spark7"></canvas></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CHARTS -->
+        <div class="charts-section">
+
+            <!-- VISÃO GERAL -->
+            <div id="dashboard" class="category-section active">
+                <!-- PAINEL ATIVOS -->
+                <div class="ativos-panel" id="ativosPanel" style="display:none">
+
+                    <!-- 1. Painel de risco -->
+                    <div class="semaforo-grid" id="semaforoGrid" style="margin-bottom:14px">
+                        <div class="semaforo-header">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                            <span>Painel de Risco — Áreas com múltiplos alertas</span>
+                        </div>
+                        <div class="semaforo-cards" id="semaforoCards">
+                            <div class="semaforo-empty">Importe a planilha principal para visualizar os alertas de risco.</div>
+                        </div>
+                    </div>
+
+                    <!-- 2. Gráfico evolução (sem mês) OU cards início/fim (com mês) -->
+                    <div class="chart-card" id="ativosHeadcountBlock" style="margin-bottom:14px">
+                        <div class="chart-title" id="ativosEvolTitle">Evolução de Colaboradores — Últimos 12 Meses</div>
+                        <!-- Só aparece sem mês selecionado -->
+                        <div id="ativosChartWrap">
+                            <canvas id="chartMovement" height="65"></canvas>
+                        </div>
+                        <!-- Só aparece com mês selecionado -->
+                        <div class="ativos-mes-cards" id="ativosMesCards" style="display:none">
+                            <div class="ativos-mes-card ativos-mes-blue">
+                                <div class="ativos-mes-label">Início do mês</div>
+                                <div class="ativos-mes-value" id="ativosMesInicio">—</div>
+                            </div>
+                            <div class="ativos-mes-card ativos-mes-teal">
+                                <div class="ativos-mes-label">Fim do mês</div>
+                                <div class="ativos-mes-value" id="ativosMesFim">—</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. Filtros (abaixo do headcount) -->
+                    <div class="ativos-filter-bar" style="margin-bottom:14px">
+                        <div class="rs-filter-group">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                            <label class="rs-filter-label">Área</label>
+                            <select id="ativosFilterArea" class="rs-filter-select" onchange="renderAtivos()">
+                                <option value="">Todas</option>
+                            </select>
+                        </div>
+                        <div class="rs-filter-group">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                            <label class="rs-filter-label">Gestor</label>
+                            <select id="ativosFilterGestor" class="rs-filter-select" onchange="renderAtivos()">
+                                <option value="">Todos</option>
+                            </select>
+                        </div>
+                        <button class="rs-filter-clear" onclick="document.getElementById('ativosFilterArea').value='';document.getElementById('ativosFilterGestor').value='';renderAtivos()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            Limpar filtros
+                        </button>
+                    </div>
+
+                    <!-- 4. Cards: Folha | Tempo de casa | Exp 45 | Exp 90 -->
+                    <div class="ativos-kpi-row" style="margin-bottom:16px">
+                        <!-- Folha -->
+                        <div class="ativos-kpi-card ativos-kpi-green">
+                            <div class="ativos-kpi-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+                            </div>
+                            <div class="ativos-kpi-body">
+                                <div class="ativos-kpi-label">Folha de Pagamento</div>
+                                <div class="ativos-kpi-value" id="ativosFolha">—</div>
+                                <div class="ativos-kpi-sub" id="ativosFolhaSub"></div>
+                            </div>
+                        </div>
+                        <!-- Tempo de casa -->
+                        <div class="ativos-kpi-card ativos-kpi-blue">
+                            <div class="ativos-kpi-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                            </div>
+                            <div class="ativos-kpi-body">
+                                <div class="ativos-kpi-label">Tempo Médio de Casa</div>
+                                <div class="ativos-kpi-value" id="ativosTempoCasa">—</div>
+                                <div class="ativos-kpi-sub">média da equipe</div>
+                            </div>
+                        </div>
+                        <!-- Exp 45 -->
+                        <div class="ativos-kpi-card ativos-kpi-amber" id="ativosExp45Card">
+                            <div class="ativos-kpi-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            </div>
+                            <div class="ativos-kpi-body">
+                                <div class="ativos-kpi-label">Exp. até 45 dias</div>
+                                <div class="ativos-kpi-value" id="ativosExp45">—</div>
+                                <button class="exp-list-btn" onclick="openExpModal('45')">Ver colaboradores</button>
+                            </div>
+                        </div>
+                        <!-- Exp 90 -->
+                        <div class="ativos-kpi-card ativos-kpi-orange" id="ativosExp90Card">
+                            <div class="ativos-kpi-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 16l2 2 4-4"/></svg>
+                            </div>
+                            <div class="ativos-kpi-body">
+                                <div class="ativos-kpi-label">Exp. 45 a 90 dias</div>
+                                <div class="ativos-kpi-value" id="ativosExp90">—</div>
+                                <button class="exp-list-btn" onclick="openExpModal('90')">Ver colaboradores</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Dados ocultos das listas (fonte para o modal) -->
+                    <div id="exp45ListBody" style="display:none"></div>
+                    <div id="exp90ListBody" style="display:none"></div>
+
+                    <!-- 5. Gráficos: linha 1 — Liderança (rosca) + Classificação (barras) -->
+                    <div class="charts-grid ativos-charts-1-2" style="margin-bottom:14px">
+                        <div class="chart-card ativos-chart-donut">
+                            <div class="chart-title">Liderança vs Não Liderança</div>
+                            <div class="chart-canvas-wrap">
+                                <canvas id="chartAtivosLideranca"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-card ativos-chart-stretch">
+                            <div class="chart-title">Nível / Classificação</div>
+                            <div class="chart-canvas-wrap">
+                                <canvas id="chartAtivosClassificacao"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- linha 2 — Sexo (rosca) + Estado (barras) -->
+                    <div class="charts-grid ativos-charts-1-2">
+                        <div class="chart-card ativos-chart-donut">
+                            <div class="chart-title">Distribuição por Sexo</div>
+                            <div class="chart-canvas-wrap">
+                                <canvas id="chartAtivosGenero"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-card ativos-chart-stretch">
+                            <div class="chart-title">Colaboradores por Estado</div>
+                            <div class="chart-canvas-wrap">
+                                <canvas id="chartAtivosEstado"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Semáforo fallback (sem dados) -->
+                <div class="semaforo-grid" id="semaforoGridFallback" style="display:none">
+                    <div class="semaforo-header">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        <span>Painel de Risco — Áreas com múltiplos alertas</span>
+                    </div>
+                    <div class="semaforo-cards">
+                        <div class="semaforo-empty">Importe a planilha principal para visualizar os alertas de risco.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal de período de experiência / colaboradores (fora das category-section para não ser escondido) -->
+            <div class="exp-modal-overlay" id="expModalOverlay" onclick="closeExpModal(event)">
+                <div class="exp-modal" id="expModal">
+                    <div class="exp-modal-header">
+                        <span class="exp-modal-title" id="expModalTitle"></span>
+                        <button class="exp-modal-close" onclick="closeExpModal()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    </div>
+                    <div class="exp-modal-body" id="expModalBody"></div>
+                </div>
+            </div>
+
+            <!-- Modal detalhe colaborador Período de Experiência -->
+            <div class="exp-modal-overlay" id="peDetailOverlay" onclick="closePeDetail(event)">
+                <div class="exp-modal" id="peDetailModal" style="max-width:480px">
+                    <div class="exp-modal-header">
+                        <span class="exp-modal-title" id="peDetailTitle"></span>
+                        <button class="exp-modal-close" onclick="closePeDetail()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    </div>
+                    <div class="exp-modal-body" id="peDetailBody" style="padding:20px"></div>
+                </div>
+            </div>
+
+            <!-- ATESTADOS -->
+            <div id="atestados" class="category-section">
+                <div class="empty-state" id="emptyAtestados">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="40" height="40"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414A1 1 0 0119 8.414V19a2 2 0 01-2 2z"/></svg>
+                    <p>Importe uma planilha com dados de <strong>Atestados</strong> para visualizar os indicadores.</p>
+                    <label for="file-upload" class="btn-import btn-import-sm">Importar planilha</label>
+                </div>
+                <div class="charts-grid" id="chartsAtestados" style="display:none">
+                    <div class="chart-card">
+                        <div class="chart-title">Atestados por Área</div>
+                        <canvas id="chartAtestadosArea" height="160"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-title">Evolução Mensal de Atestados</div>
+                        <canvas id="chartAtestadosEvolution" height="160"></canvas>
+                    </div>
+                    <div class="chart-card span-2">
+                        <div class="chart-title">Atestados por Classificação</div>
+                        <canvas id="chartAtestadosClassificacao" height="100"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CLIMA -->
+            <div id="clima" class="category-section">
+
+                <!-- Empty state -->
+                <div class="empty-state" id="emptyClima">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="40" height="40"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+                    <p>Importe a planilha principal (com a aba <strong>Clima das Áreas</strong>) para visualizar os indicadores.</p>
+                    <label for="file-upload" class="btn-import btn-import-sm">Importar planilha</label>
+                </div>
+
+                <!-- Dashboard Clima -->
+                <div id="chartsClima" style="display:none">
+
+                    <!-- CARDS DE ÁREA: scroll horizontal -->
+                    <div class="clima-area-cards-wrap" style="margin-top:14px">
+                        <div class="clima-area-cards-scroll" id="climaAreaCards"></div>
+                    </div>
+
+                    <!-- FILTRO MULTI-SELECT + GRÁFICO EVOLUÇÃO -->
+                    <div class="chart-card" style="margin-top:12px">
+                        <div class="clima-evol-header">
+                            <div class="chart-title" style="margin-bottom:0">Evolução do Banco de Horas — Mensal</div>
+                            <div class="clima-filter-wrapper">
+                                <button class="clima-filter-btn" id="climaFilterBtn" onclick="document.getElementById('climaFilterDropdown').classList.toggle('open')">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                                    Selecionar áreas
+                                </button>
+                                <div class="clima-filter-dropdown" id="climaFilterDropdown">
+                                    <div class="clima-filter-actions">
+                                        <button onclick="document.querySelectorAll('.clima-area-check').forEach(c=>c.checked=true);renderCharts('clima')">Todas</button>
+                                        <button onclick="document.querySelectorAll('.clima-area-check').forEach(c=>c.checked=false);renderCharts('clima')">Limpar</button>
+                                    </div>
+                                    <div class="clima-filter-list" id="climaFilterList"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <canvas id="chartClimaEvol" height="130" style="margin-top:14px"></canvas>
+                    </div>
+
+                </div><!-- /chartsClima -->
+            </div>
+
+            <!-- COTAS -->
+            <div id="cotas" class="category-section">
+                <div class="empty-state" id="emptyCotas">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="40" height="40"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+                    <p>Importe uma planilha com as abas <strong>Cotas PCD</strong> e <strong>Cotas JA</strong> para visualizar os indicadores.</p>
+                    <label for="file-upload" class="btn-import btn-import-sm">Importar planilha</label>
+                </div>
+                <div id="chartsCotas" style="display:none">
+
+                    <!-- CARDS PRINCIPAIS -->
+                    <div class="cotas-main-cards">
+                        <div class="cotas-main-card cotas-main-pcd">
+                            <div class="cotas-main-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="26" height="26"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+                            </div>
+                            <div class="cotas-main-body">
+                                <div class="cotas-main-label">A Contratar — PCD</div>
+                                <div class="cotas-main-value" id="cotasPcdContratar">—</div>
+                                <div class="cotas-main-sub" id="cotasPcdSub"></div>
+                            </div>
+                        </div>
+                        <div class="cotas-main-card cotas-main-ja">
+                            <div class="cotas-main-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="26" height="26"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+                            </div>
+                            <div class="cotas-main-body">
+                                <div class="cotas-main-label">A Contratar — Jovem Aprendiz</div>
+                                <div class="cotas-main-value" id="cotasJaContratar">—</div>
+                                <div class="cotas-main-sub" id="cotasJaSub"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- GRÁFICOS (sem mês selecionado) -->
+                    <div id="cotasGraficos" class="charts-grid" style="margin-top:12px">
+                        <div class="chart-card">
+                            <div class="chart-title">Análise PCD — Cota Mínima, Atual e A Contratar</div>
+                            <canvas id="chartCotasPcd" height="140"></canvas>
+                        </div>
+                        <div class="chart-card">
+                            <div class="chart-title">Análise Jovem Aprendiz — Cota Mínima, Atual e A Contratar</div>
+                            <canvas id="chartCotasJa" height="140"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- DETALHE DO MÊS (com mês selecionado) -->
+                    <div id="cotasDetalhe" style="display:none; margin-top:12px">
+                        <div class="cotas-detalhe-grid">
+                            <!-- PCD detalhe -->
+                            <div class="cotas-detalhe-bloco cotas-detalhe-pcd">
+                                <div class="cotas-detalhe-titulo">PCD</div>
+                                <div class="cotas-detalhe-cards">
+                                    <div class="cotas-det-card">
+                                        <div class="cotas-det-label">Cota Mínima</div>
+                                        <div class="cotas-det-value" id="detPcdMin">—</div>
+                                    </div>
+                                    <div class="cotas-det-card">
+                                        <div class="cotas-det-label">Cota Atual</div>
+                                        <div class="cotas-det-value" id="detPcdAtual">—</div>
+                                    </div>
+                                    <div class="cotas-det-card cotas-det-destaque">
+                                        <div class="cotas-det-label">A Contratar</div>
+                                        <div class="cotas-det-value" id="detPcdContratar">—</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- JA detalhe -->
+                            <div class="cotas-detalhe-bloco cotas-detalhe-ja">
+                                <div class="cotas-detalhe-titulo">Jovem Aprendiz</div>
+                                <div class="cotas-detalhe-cards">
+                                    <div class="cotas-det-card">
+                                        <div class="cotas-det-label">Cota Mínima</div>
+                                        <div class="cotas-det-value" id="detJaMin">—</div>
+                                    </div>
+                                    <div class="cotas-det-card">
+                                        <div class="cotas-det-label">Cota Atual</div>
+                                        <div class="cotas-det-value" id="detJaAtual">—</div>
+                                    </div>
+                                    <div class="cotas-det-card cotas-det-destaque">
+                                        <div class="cotas-det-label">A Contratar</div>
+                                        <div class="cotas-det-value" id="detJaContratar">—</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- MOVIMENTAÇÕES -->
+            <div id="movimentacoes" class="category-section">
+
+                <!-- Empty state -->
+                <div class="empty-state" id="emptyMovimentacoes">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="40" height="40"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
+                    <p>Importe a planilha principal (com a aba <strong>Movimentações Internas</strong>) para visualizar os indicadores.</p>
+                    <label for="file-upload" class="btn-import btn-import-sm">Importar planilha</label>
+                </div>
+
+                <!-- Dashboard -->
+                <div id="chartsMovimentacoes" style="display:none">
+
+                    <!-- LINHA 1: Evolução mensal full-width -->
+                    <div style="margin-top:12px">
+                        <div class="chart-card">
+                            <div class="chart-title">Volume de Movimentações por Mês</div>
+                            <canvas id="chartMovimEvol" height="110"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- TABELA DE COLABORADORES -->
+                    <div class="chart-card" style="margin-top:12px;margin-bottom:4px">
+                        <div class="table-header-row">
+                            <div class="chart-title" style="margin-bottom:0">Colaboradores Movimentados</div>
+                            <input type="text" class="table-search" id="movSearch" placeholder="🔍 Buscar colaborador..." oninput="filterTable('movimTabela', this.value)">
+                        </div>
+                        <div class="movim-table-wrap">
+                            <table class="movim-table">
+                                <thead>
+                                    <tr>
+                                        <th>Colaborador</th>
+                                        <th>Área Atual</th>
+                                        <th>Nova Área</th>
+                                        <th>Motivo Geral</th>
+                                        <th>Gestor Atual</th>
+                                        <th>Novo Gestor</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="movimTabela"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                </div><!-- /chartsMovimentacoes -->
+            </div>
+
+            <!-- OFFBOARDING -->
+            <div id="offboarding" class="category-section">
+
+                <div class="empty-state" id="emptyOffboarding">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="40" height="40"><path d="M17 16l4-4-4-4"/><path d="M3 12h18"/><path d="M3 6h6M3 18h6"/></svg>
+                    <p>Importe a planilha principal (com a aba <strong>Offboarding</strong>) para visualizar os indicadores.</p>
+                    <label for="file-upload" class="btn-import btn-import-sm">Importar planilha</label>
+                </div>
+
+                <div id="chartsOffboarding" style="display:none">
+
+                    <!-- LINHA DE CARDS: tempo de casa + motivo principal -->
+                    <div class="off-kpi-row" id="offKpiRow2" style="margin-top:14px"></div>
+
+                    <!-- LINHA 1: Evolução mensal full-width -->
+                    <div style="margin-top:12px">
+                        <div class="chart-card">
+                            <div class="chart-title">Volume de Desligamentos por Mês</div>
+                            <canvas id="chartOffEvol" height="110"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- LINHA 2: Motivos por mês full-width -->
+                    <div style="margin-top:12px">
+                        <div class="chart-card">
+                            <div class="chart-title">Motivos de Saída por Mês</div>
+                            <canvas id="chartOffMotivo" height="110"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- LINHA 3: Por Área + Por Gestor (50/50) -->
+                    <div class="off-row" style="margin-top:12px">
+                        <div class="chart-card off-left">
+                            <div class="chart-title">Desligamentos por Área</div>
+                            <div style="position:relative;height:280px">
+                                <canvas id="chartOffArea"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-card off-right">
+                            <div class="chart-title">Desligamentos por Gestor</div>
+                            <div style="position:relative;height:280px">
+                                <canvas id="chartOffGestor"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TABELA -->
+                    <div class="chart-card" style="margin-top:12px;margin-bottom:4px">
+                        <div class="table-header-row">
+                            <div class="chart-title" style="margin-bottom:0">Colaboradores Desligados</div>
+                            <input type="text" class="table-search" id="offSearch" placeholder="🔍 Buscar colaborador..." oninput="filterTable('offTabela', this.value)">
+                        </div>
+                        <div class="movim-table-wrap">
+                            <table class="movim-table">
+                                <thead>
+                                    <tr>
+                                        <th>Colaborador</th>
+                                        <th>Cargo</th>
+                                        <th>Classificação</th>
+                                        <th>Área</th>
+                                        <th>Tipo</th>
+                                        <th>Motivo</th>
+                                        <th>Tempo de Casa</th>
+                                        <th>Mês</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="offTabela"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                </div><!-- /chartsOffboarding -->
+            </div>
+
+            <!-- RECRUTAMENTO -->
+            <div id="recrutamento" class="category-section" style="position:relative;padding-top:36px">
+
+                <!-- Importação própria de R&S — botão discreto no canto superior direito -->
+                <div class="rs-import-corner">
+                    <span id="rsFileBadgeText" class="rs-import-corner-text"></span>
+                    <button id="rsClearBtn" onclick="clearRsData()" title="Remover planilha" style="display:none;background:none;border:none;cursor:pointer;color:var(--text-secondary);padding:0 2px;line-height:1;font-size:14px;">✕</button>
+                    <label for="rs-file-upload" class="btn-import-ghost btn-import-ghost-sm" title="Importar planilha de Recrutamento &amp; Seleção">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        Importar
+                    </label>
+                    <input type="file" id="rs-file-upload" accept=".xlsx,.xls" style="display:none">
+                </div>
+
+                <!-- Empty state -->
+                <div class="empty-state empty-state-subtle" id="emptyRecrutamento">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="40" height="40"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <p>Importe a planilha de <strong>Recrutamento &amp; Seleção</strong> usando o botão acima.</p>
+                </div>
+
+                <!-- Dashboard -->
+                <div id="chartsRecrutamento" style="display:none">
+
+                    <!-- KPI CARDS — linha 1: 4 cards (destaque) -->
+                    <div class="rs-kpi-grid rs-kpi-row4 rs-kpi-row--primary">
+
+                        <div class="rs-kpi-card rs-kpi-card--top rs-stripe-blue">
+                            <div class="rs-kpi-card-head">
+                                <i class="rs-kpi-icon-sm rs-icon-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg></i>
+                                <span class="rs-kpi-label">Vagas Abertas</span>
+                            </div>
+                            <div class="rs-kpi-value" id="rsVagasAbertas">—</div>
+                            <div class="rs-kpi-var" id="rsVagasAbertasVar"></div>
+                        </div>
+
+                        <div class="rs-kpi-card rs-kpi-card--top rs-stripe-green">
+                            <div class="rs-kpi-card-head">
+                                <i class="rs-kpi-icon-sm rs-icon-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></i>
+                                <span class="rs-kpi-label">Vagas Fechadas</span>
+                            </div>
+                            <div class="rs-kpi-value" id="rsVagasFechadas">—</div>
+                            <div class="rs-kpi-var" id="rsVagasFechadasVar"></div>
+                        </div>
+
+                        <div class="rs-kpi-card rs-kpi-card--top rs-stripe-purple">
+                            <div class="rs-kpi-card-head">
+                                <i class="rs-kpi-icon-sm rs-icon-purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></i>
+                                <span class="rs-kpi-label">Vagas Trabalhadas</span>
+                            </div>
+                            <div class="rs-kpi-value" id="rsVagasTrabalhadas">—</div>
+                            <div class="rs-kpi-sub" id="rsVagasTrabalhadasSub"></div>
+                        </div>
+
+                        <div class="rs-kpi-card rs-kpi-card--top rs-stripe-red">
+                            <div class="rs-kpi-card-head">
+                                <i class="rs-kpi-icon-sm rs-icon-red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></i>
+                                <span class="rs-kpi-label">Declínios</span>
+                            </div>
+                            <div class="rs-kpi-value" id="rsDeclinios">—</div>
+                            <div class="rs-kpi-sub" id="rsDecliniosPct"></div>
+                            <div class="rs-kpi-var" id="rsDecliniosVar"></div>
+                        </div>
+
+                    </div><!-- /rs-kpi-row4 -->
+
+                    <!-- KPI CARDS — linha 2: 5 cards (apoio/contexto) -->
+                    <div class="rs-kpi-grid rs-kpi-row5 rs-kpi-row--secondary">
+
+                        <div class="rs-kpi-card-sm">
+                            <span class="rs-kpi-sm-label">SLA Médio (dias úteis)</span>
+                            <span class="rs-kpi-sm-value" id="rsSlaMedia">—</span>
+                            <div class="rs-kpi-var" id="rsSlaVar"></div>
+                        </div>
+
+                        <div class="rs-kpi-card-sm">
+                            <span class="rs-kpi-sm-label">Vagas Canceladas</span>
+                            <span class="rs-kpi-sm-value" id="rsVagasCanceladas">—</span>
+                            <div class="rs-kpi-var" id="rsVagasCanceladasVar"></div>
+                        </div>
+
+                        <div class="rs-kpi-card-sm">
+                            <span class="rs-kpi-sm-label">Time to Start (médio)</span>
+                            <span class="rs-kpi-sm-value" id="rsTtsMedia">—</span>
+                            <div class="rs-kpi-var" id="rsTtsVar"></div>
+                        </div>
+
+                        <div class="rs-kpi-card-sm">
+                            <span class="rs-kpi-sm-label">Time to Fill (médio)</span>
+                            <span class="rs-kpi-sm-value" id="rsTtfMedia">—</span>
+                            <div class="rs-kpi-var" id="rsTtfVar"></div>
+                        </div>
+
+                        <div class="rs-kpi-card-sm">
+                            <span class="rs-kpi-sm-label">Principal Fonte</span>
+                            <span class="rs-kpi-sm-value rs-kpi-sm-value--text" id="rsFontePrincipal">—</span>
+                            <div class="rs-kpi-sub" id="rsFontePct"></div>
+                            <div class="rs-kpi-var" id="rsFonteVar"></div>
+                        </div>
+
+                    </div><!-- /rs-kpi-row5 -->
+
+                    <!-- FILTROS ÁREA + GESTOR -->
+                    <div class="rs-filter-bar" id="rsFilterBar">
+                        <div class="rs-filter-group">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                            <label for="rsFilterArea" class="rs-filter-label">Área</label>
+                            <select id="rsFilterArea" class="rs-filter-select" onchange="renderRS()">
+                                <option value="Todas">Todas</option>
+                            </select>
+                        </div>
+                        <div class="rs-filter-group">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                            <label for="rsFilterGestor" class="rs-filter-label">Gestor</label>
+                            <select id="rsFilterGestor" class="rs-filter-select" onchange="renderRS()">
+                                <option value="Todos">Todos</option>
+                            </select>
+                        </div>
+                        <button class="rs-filter-clear" onclick="document.getElementById('rsFilterArea').value='Todas';document.getElementById('rsFilterGestor').value='Todos';renderRS();" title="Limpar filtros">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            Limpar
+                        </button>
+                    </div>
+
+                    <!-- METAS R&S -->
+                    <div class="rs-metas-bar">
+                        <span class="rs-metas-label">📊 Metas:</span>
+                        <span class="rs-meta-badge" id="rsMetaSla">—</span>
+                        <span class="rs-meta-badge" id="rsMetaDec">—</span>
+                    </div>
+
+                    <!-- GRÁFICO 1: Evolução full-width -->
+                    <div class="rs-chart-row" style="margin-top:14px">
+                        <div class="chart-card rs-chart-full">
+                            <div class="rs-chart-header">
+                                <div class="chart-title" id="rsEvolucaoTitle">Vagas Abertas vs Fechadas por Mês</div>
+                                <div class="rs-chart-badge" id="rsEvolucaoBadge" style="display:none"></div>
+                            </div>
+                            <canvas id="chartRsEvolucao" height="110"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- GRÁFICO 2+3: Status (pequeno) + Nível (ao lado), mesma altura -->
+                    <div class="rs-mid-row" style="margin-top:12px">
+                        <div class="chart-card rs-chart-status-card">
+                            <div class="chart-title">Status por Vaga</div>
+                            <canvas id="chartRsStatus"></canvas>
+                        </div>
+                        <div class="chart-card rs-chart-nivel-card">
+                            <div class="chart-title">Distribuição por Nível</div>
+                            <canvas id="chartRsNivel"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- GRÁFICO 4: Por recrutador full-width -->
+                    <div class="rs-chart-row" style="margin-top:12px; margin-bottom:4px">
+                        <div class="chart-card rs-chart-full">
+                            <div class="chart-title">Vagas por Recrutador</div>
+                            <canvas id="chartRsRecrutador" height="120"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- GRÁFICO 5: Fontes de Contratação full-width -->
+                    <div class="rs-chart-row" style="margin-top:12px; margin-bottom:4px">
+                        <div class="chart-card rs-chart-full">
+                            <div class="chart-title">Fontes de Contratação por Mês</div>
+                            <canvas id="chartRsFontes" height="120"></canvas>
+                        </div>
+                    </div>
+
+                </div><!-- /chartsRecrutamento -->
+            </div>
+
+            <!-- REPORT SEMANAL (sub de Recrutamento & Seleção) -->
+            <div id="reportSemanal" class="category-section">
+                <div class="empty-state" id="emptyReportSemanal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="40" height="40"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    <p>O <strong>Report Semanal</strong> de Recrutamento &amp; Seleção será exibido aqui assim que configurado.</p>
+                </div>
+            </div>
+
+            <!-- ATINGIMENTO DE METAS -->
+            <div id="atingimentoMetas" class="category-section">
+                <div class="empty-state" id="emptyAtingimentoMetas">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="40" height="40"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+                    <p>Importe os dados de <strong>Atingimento de Metas</strong> para visualizar os indicadores aqui.</p>
+                </div>
+            </div>
+
+            <!-- PERÍODO DE EXPERIÊNCIA -->
+            <div id="periodoExperiencia" class="category-section" style="position:relative;padding-top:36px">
+
+                <!-- Importação própria de Período de Experiência — botão discreto no canto superior direito -->
+                <div class="rs-import-corner">
+                    <span id="peFileBadgeText" class="rs-import-corner-text"></span>
+                    <button id="peClearBtn" onclick="clearPeData()" title="Remover planilha" style="display:none;background:none;border:none;cursor:pointer;color:var(--text-secondary);padding:0 2px;line-height:1;font-size:14px;">✕</button>
+                    <label for="pe-file-upload" class="btn-import-ghost btn-import-ghost-sm" title="Importar planilha de Período de Experiência">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        Importar
+                    </label>
+                    <input type="file" id="pe-file-upload" accept=".xlsx,.xls" style="display:none">
+                </div>
+
+                <div class="empty-state empty-state-subtle" id="emptyPeriodoExperiencia">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="40" height="40"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 16l2 2 4-4"/></svg>
+                    <p>Importe a planilha de <strong>Período de Experiência</strong> usando o botão acima.</p>
+                </div>
+
+                <!-- Dashboard (preenchido após importação) -->
+                <div id="chartsPeriodoExperiencia" style="display:none">
+
+                    <!-- Cards principais -->
+                    <div class="ativos-kpi-row" style="grid-template-columns:1fr 1fr;margin-bottom:18px">
+                        <div class="ativos-kpi-card ativos-kpi-amber">
+                            <div class="ativos-kpi-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            </div>
+                            <div class="ativos-kpi-body">
+                                <div class="ativos-kpi-label">Período de 45 dias</div>
+                                <div class="ativos-kpi-value" id="peCount45">—</div>
+                                <div class="ativos-kpi-sub" id="peLabel45Sub"></div>
+                                <button class="exp-list-btn" style="color:#b38600;border-color:#b38600" onclick="openPeModal('45')">Ver colaboradores</button>
+                            </div>
+                        </div>
+                        <div class="ativos-kpi-card ativos-kpi-orange">
+                            <div class="ativos-kpi-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 16l2 2 4-4"/></svg>
+                            </div>
+                            <div class="ativos-kpi-body">
+                                <div class="ativos-kpi-label">Período de 45 a 90 dias</div>
+                                <div class="ativos-kpi-value" id="peCount90">—</div>
+                                <div class="ativos-kpi-sub" id="peLabel90Sub"></div>
+                                <button class="exp-list-btn" style="color:#cc7000;border-color:#cc7000" onclick="openPeModal('90')">Ver colaboradores</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Gráficos de decisão (roscas) -->
+                    <div class="charts-grid" style="margin-bottom:14px">
+                        <div class="chart-card">
+                            <div class="chart-title">Decisão — 45 dias</div>
+                            <div style="height:240px;position:relative">
+                                <canvas id="chartPeDecisao45"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-card">
+                            <div class="chart-title">Decisão — 90 dias</div>
+                            <div style="height:240px;position:relative">
+                                <canvas id="chartPeDecisao90"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Gráfico por área (único, barras agrupadas 45 e 90 dias) -->
+                    <div class="charts-grid" style="margin-bottom:14px">
+                        <div class="chart-card" style="grid-column:1/-1">
+                            <div class="chart-title">Decisão por Área — 45 e 90 dias</div>
+                            <div style="height:280px;position:relative">
+                                <canvas id="chartPeArea"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tabela completa -->
+                    <div class="chart-card" style="margin-top:14px">
+                        <div class="pe-table-header">
+                            <div class="chart-title" style="margin:0">Todos os Colaboradores — Período de Experiência</div>
+                            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                                <select id="peFilterArea" class="rs-filter-select" onchange="buildPeFullTable()" style="font-size:11.5px;padding:5px 10px">
+                                    <option value="">Todas as áreas</option>
+                                </select>
+                                <select id="peFilterGestor" class="rs-filter-select" onchange="buildPeFullTable()" style="font-size:11.5px;padding:5px 10px">
+                                    <option value="">Todos os gestores</option>
+                                </select>
+                                <div class="pe-search-box">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                                    <input type="text" id="peSearchInput" placeholder="Buscar nome..." oninput="buildPeFullTable()">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="pe-table-wrap">
+                            <table class="exp-list-table pe-full-table">
+                                <thead>
+                                    <tr>
+                                        <th>Categoria</th>
+                                        <th>Nome</th>
+                                        <th>Data 45 dias</th>
+                                        <th>Decisão 45 dias</th>
+                                        <th>Farol 45</th>
+                                        <th>Data 90 dias</th>
+                                        <th>Decisão 90 dias</th>
+                                        <th>Farol 90</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="peFullTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </div><!-- /charts-section -->
+
+        <footer class="dashboard-footer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            Indicadores atualizados com base nos dados importados. Importe uma planilha para alimentar os gráficos.
+        </footer>
+
+    </main>
+</div>
+
+<div class="cid-tooltip" id="cid-tooltip">
+    <div class="cid-tooltip-title">Colaboradores com CID Psiquiátrico</div>
+    <ul class="cid-tooltip-list" id="cid-tooltip-list"></ul>
+</div>
+
+<div class="cid-tooltip" id="inss-tooltip">
+    <div class="cid-tooltip-title">Entrada no INSS (≥ 15 dias)</div>
+    <ul class="cid-tooltip-list" id="inss-tooltip-list"></ul>
+</div>
+
+<div class="cid-tooltip" id="afastados-tooltip">
+    <div class="cid-tooltip-title">Afastados hoje</div>
+    <ul class="cid-tooltip-list" id="afastados-tooltip-list"></ul>
+</div>
+
+<div class="exp-modal-overlay" id="turnoverModalOverlay" onclick="closeTurnoverModal(event)">
+    <div class="exp-modal" id="turnoverModal" style="max-width:520px">
+        <div class="exp-modal-header">
+            <span class="exp-modal-title" id="turnoverModalTitle">Detalhamento do Turnover</span>
+            <button class="exp-modal-close" onclick="closeTurnoverModal()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+        <div class="exp-modal-body" id="turnoverModalBody" style="padding:20px"></div>
+    </div>
+</div>
+
+<script src="script.js"></script>
+<select id="area-select" style="display:none"><option value="">Todas as áreas</option></select>
+</body>
+</html>
