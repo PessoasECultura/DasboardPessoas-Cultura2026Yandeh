@@ -391,17 +391,18 @@ body {
 .kpi-container[data-layout="atestados"] .kpi-card:nth-child(7) { grid-column: span 3; }
 /* Cards menores na linha 2 */
 .kpi-container[data-layout="atestados"] .kpi-card {
-  padding: 10px 12px;
-  gap: 2px;
+  padding: 7px 11px;
+  gap: 1px;
 }
 .kpi-container[data-layout="atestados"] .kpi-card:nth-child(n+4) {
-  padding: 8px 10px;
+  padding: 5px 9px;
 }
+.kpi-container[data-layout="atestados"] .kpi-sparkline { display: none; }
 .kpi-container[data-layout="atestados"] .kpi-value { font-size: 20px; }
 .kpi-container[data-layout="atestados"] .kpi-card:nth-child(n+4) .kpi-value { font-size: 17px; }
 .kpi-container[data-layout="atestados"] .kpi-label { font-size: 9.5px; }
-.kpi-container[data-layout="atestados"] .kpi-icon-wrap { width: 32px; height: 32px; }
-.kpi-container[data-layout="atestados"] .kpi-card:nth-child(n+4) .kpi-icon-wrap { width: 28px; height: 28px; }
+.kpi-container[data-layout="atestados"] .kpi-icon-wrap { width: 26px; height: 26px; }
+.kpi-container[data-layout="atestados"] .kpi-card:nth-child(n+4) .kpi-icon-wrap { width: 22px; height: 22px; }
 .kpi-container[data-layout="atestados"] .kpi-sparkline { height: 32px; }
 @media (max-width: 1300px) { .kpi-container { grid-template-columns: repeat(3,1fr); } }
 @media (max-width: 800px)  { .kpi-container { grid-template-columns: repeat(2,1fr); } }
@@ -2374,3 +2375,74 @@ body.dark-mode .pe-cat-90        { color: #fdba74; }
   color: var(--text-secondary);
   padding-top: 4px;
 }
+/* ── ATINGIMENTO DE METAS ── */
+.okr-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.okr-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  user-select: none;
+  transition: background .15s;
+}
+.okr-header:hover { background: var(--hover-bg, rgba(0,0,0,.03)); }
+.okr-num {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-light, rgba(180,0,255,.1));
+  border-radius: 6px;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+.okr-title { font-size: 13.5px; font-weight: 600; color: var(--text-primary); flex:1; }
+.okr-peso  { font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
+.okr-status-badge {
+  font-size: 10.5px; font-weight: 600;
+  padding: 3px 10px; border-radius: 20px; white-space: nowrap;
+}
+.okr-chevron { transition: transform .2s; color: var(--text-secondary); }
+.okr-card.open .okr-chevron { transform: rotate(180deg); }
+.okr-body { display: none; padding: 0 16px 14px; border-top: 1px solid var(--border); }
+.okr-card.open .okr-body { display: block; }
+.okr-descricao {
+  font-size: 12px; color: var(--text-secondary);
+  white-space: pre-line; margin: 10px 0 14px;
+  line-height: 1.6;
+}
+.okr-acoes-title { font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+.okr-acao {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid var(--border);
+  font-size: 12.5px; color: var(--text-primary);
+}
+.okr-acao:last-child { border-bottom: none; }
+.okr-acao-resp {
+  font-size: 10px; font-weight: 700;
+  color: #0078d4; background: rgba(0,120,212,.1);
+  border-radius: 4px; padding: 2px 6px; white-space: nowrap;
+  margin-top: 1px;
+}
+.okr-mes-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(80px,1fr));
+  gap: 8px; margin-top: 14px;
+}
+.okr-mes-card {
+  background: var(--bg-secondary, rgba(0,0,0,.03));
+  border-radius: 8px; padding: 8px 10px; text-align: center;
+}
+.okr-mes-label { font-size: 10px; color: var(--text-secondary); margin-bottom: 4px; }
+.okr-mes-val { font-size: 13px; font-weight: 700; }
+.metas-kpi-card {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 18px; flex: 1; min-width: 160px;
+}
+.metas-kpi-label { font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; }
+.metas-kpi-val { font-size: 22px; font-weight: 700; color: var(--text-primary); }
