@@ -2446,3 +2446,43 @@ body.dark-mode .pe-cat-90        { color: #fdba74; }
 }
 .metas-kpi-label { font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; }
 .metas-kpi-val { font-size: 22px; font-weight: 700; color: var(--text-primary); }
+
+/* ── FILTROS DE COLUNA NAS TABELAS ── */
+.th-filter {
+  width: 100%;
+  margin-top: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 400;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-secondary, rgba(0,0,0,.04));
+  color: var(--text-primary);
+  outline: none;
+  font-family: inherit;
+}
+.th-filter:focus { border-color: var(--accent); }
+.th-filter::placeholder { color: var(--text-secondary); opacity: .6; }
+
+/* ── FILTROS NO CABEÇALHO DAS TABELAS ── */
+.th-filter {
+  padding: 4px 6px 6px;
+}
+.th-filter input {
+  width: 100%;
+  padding: 4px 6px;
+  font-size: 10.5px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-primary, var(--card-bg));
+  color: var(--text-primary);
+  outline: none;
+  box-sizing: border-box;
+}
+.th-filter input:focus {
+  border-color: var(--accent, #b4a0ff);
+}
+.th-filter input::placeholder {
+  color: var(--text-secondary);
+  opacity: .6;
+}
