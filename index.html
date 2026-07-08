@@ -155,6 +155,7 @@
                     <div class="kpi-content">
                         <div class="kpi-label" id="label-kpi1">Headcount</div>
                         <div class="kpi-value" id="kpi-v1">—</div>
+                        <div class="kpi-sub" id="sub-kpi1"></div>
                         <div class="kpi-variation" id="var-kpi1"></div>
                     </div>
                     <div class="kpi-sparkline"><canvas id="spark1"></canvas></div>
@@ -615,7 +616,6 @@
                     <div class="chart-card" style="margin-top:12px;margin-bottom:4px">
                         <div class="table-header-row">
                             <div class="chart-title" style="margin-bottom:0">Colaboradores Movimentados</div>
-                            <input type="text" class="table-search" id="movSearch" placeholder="🔍 Buscar colaborador..." oninput="filterTable('movimTabela', this.value)">
                         </div>
                         <div class="movim-table-wrap">
                             <table class="movim-table">
@@ -625,6 +625,12 @@
                                         <th>Motivo Geral</th>
                                         <th>% de Aumento</th>
                                         <th>Mês</th>
+                                    </tr>
+                                    <tr>
+                                        <th class="th-filter"><input type="text" placeholder="🔍 Nome" oninput="filterTableCol('movimTabela', 0, this.value)"></th>
+                                        <th class="th-filter"><input type="text" placeholder="🔍 Motivo" oninput="filterTableCol('movimTabela', 1, this.value)"></th>
+                                        <th class="th-filter"><input type="text" placeholder="🔍 %" oninput="filterTableCol('movimTabela', 2, this.value)"></th>
+                                        <th class="th-filter"><input type="text" placeholder="🔍 Mês" oninput="filterTableCol('movimTabela', 3, this.value)"></th>
                                     </tr>
                                 </thead>
                                 <tbody id="movimTabela"></tbody>
@@ -685,7 +691,6 @@
                     <div class="chart-card" style="margin-top:12px;margin-bottom:4px">
                         <div class="table-header-row">
                             <div class="chart-title" style="margin-bottom:0">Colaboradores Desligados</div>
-                            <input type="text" class="table-search" id="offSearch" placeholder="🔍 Buscar colaborador..." oninput="filterTable('offTabela', this.value)">
                         </div>
                         <div class="movim-table-wrap">
                             <table class="movim-table">
@@ -699,6 +704,16 @@
                                         <th>Motivo</th>
                                         <th>Tempo de Casa</th>
                                         <th>Mês</th>
+                                    </tr>
+                                    <tr>
+                                        <th class="th-filter"><input type="text" placeholder="🔍 Nome" oninput="filterTableCol('offTabela', 0, this.value)"></th>
+                                        <th class="th-filter"><input type="text" placeholder="🔍 Cargo" oninput="filterTableCol('offTabela', 1, this.value)"></th>
+                                        <th class="th-filter"><input type="text" placeholder="🔍" oninput="filterTableCol('offTabela', 2, this.value)"></th>
+                                        <th class="th-filter"><input type="text" placeholder="🔍 Área" oninput="filterTableCol('offTabela', 3, this.value)"></th>
+                                        <th class="th-filter"><input type="text" placeholder="🔍 Tipo" oninput="filterTableCol('offTabela', 4, this.value)"></th>
+                                        <th class="th-filter"><input type="text" placeholder="🔍 Motivo" oninput="filterTableCol('offTabela', 5, this.value)"></th>
+                                        <th class="th-filter"></th>
+                                        <th class="th-filter"><input type="text" placeholder="🔍 Mês" oninput="filterTableCol('offTabela', 7, this.value)"></th>
                                     </tr>
                                 </thead>
                                 <tbody id="offTabela"></tbody>
@@ -762,6 +777,7 @@
                             </div>
                             <div class="rs-kpi-value" id="rsVagasTrabalhadas">—</div>
                             <div class="rs-kpi-sub" id="rsVagasTrabalhadasSub"></div>
+                            <div class="rs-kpi-var" id="rsVagasTrabalhadasVar"></div>
                         </div>
 
                         <div class="rs-kpi-card rs-kpi-card--top rs-stripe-red" id="cardDeclinios">
@@ -947,9 +963,8 @@
 
                     <!-- Tabela -->
                     <div class="chart-card" style="padding:0;overflow:hidden">
-                        <div style="padding:14px 16px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px">
+                        <div style="padding:14px 16px 10px;border-bottom:1px solid var(--border)">
                             <div class="chart-title" style="margin-bottom:0">Vagas — Entrevistas e Conversão</div>
-                            <input type="text" id="reportBuscaVaga" placeholder="🔍 Buscar vaga..." oninput="filtrarTabelaReport(this.value)" style="font-size:11.5px;padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--text-primary);width:200px;outline:none">
                         </div>
                         <div style="overflow-x:auto">
                             <table class="movim-table" style="font-size:12px">
@@ -960,6 +975,13 @@
                                         <th>Entrevistas</th>
                                         <th>Aprovados</th>
                                         <th>Conversão</th>
+                                    </tr>
+                                    <tr>
+                                        <th class="th-filter"><input type="text" placeholder="🔍 Vaga" oninput="filterTableCol('reportTabelaBody', 0, this.value)"></th>
+                                        <th class="th-filter"><input type="text" placeholder="🔍 Recrutadora" oninput="filterTableCol('reportTabelaBody', 1, this.value)"></th>
+                                        <th class="th-filter"></th>
+                                        <th class="th-filter"></th>
+                                        <th class="th-filter"></th>
                                     </tr>
                                 </thead>
                                 <tbody id="reportTabelaBody"></tbody>
@@ -1094,6 +1116,16 @@
                                         <th>Data 90 dias</th>
                                         <th>Decisão 90 dias</th>
                                         <th>Farol 90</th>
+                                    </tr>
+                                    <tr>
+                                        <th class="th-filter"><input type="text" placeholder="🔍" oninput="filterTableCol('peFullTableBody', 0, this.value)"></th>
+                                        <th class="th-filter"><input type="text" placeholder="🔍 Nome" oninput="filterTableCol('peFullTableBody', 1, this.value)"></th>
+                                        <th class="th-filter"></th>
+                                        <th class="th-filter"><input type="text" placeholder="🔍 Decisão" oninput="filterTableCol('peFullTableBody', 3, this.value)"></th>
+                                        <th class="th-filter"></th>
+                                        <th class="th-filter"></th>
+                                        <th class="th-filter"><input type="text" placeholder="🔍 Decisão" oninput="filterTableCol('peFullTableBody', 6, this.value)"></th>
+                                        <th class="th-filter"></th>
                                     </tr>
                                 </thead>
                                 <tbody id="peFullTableBody"></tbody>
