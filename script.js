@@ -13,6 +13,7 @@ let cotasJaData  = [];    // aba Cotas JA:  { mes, ativos, minPessoas, maxPessoa
 let movimentData = [];    // aba Movimentações Internas
 let rsData       = [];    // planilha R&S: linhas da aba "Controle de Vagas 2026"
 let peData       = [];    // planilha Período de Experiência
+let metasData    = [];    // planilha Metas: OKRs com ações
 let climaData    = [];    // aba Clima das Áreas: { mes, mesNum, area, criticidade, bancohoras, pessoas, horasPorPessoa }
 let ativosData   = [];    // aba Ativos: colaboradores ativos com salário, área, gestor, etc.
 let charts  = {};          // instâncias Chart.js ativas
@@ -191,9 +192,11 @@ function initEventListeners() {
   const rsUploadEl = document.getElementById('rs-file-upload');
   if (rsUploadEl) rsUploadEl.addEventListener('change', handleRsUpload);
 
-  // Upload Período de Experiência — delegação para garantir que funcione independente de visibilidade
+  // Upload Período de Experiência — delegação
   document.addEventListener('change', e => {
     if (e.target && e.target.id === 'pe-file-upload') handlePeUpload(e);
+    if (e.target && e.target.id === 'report-file-upload') handleReportUpload(e);
+    if (e.target && e.target.id === 'metas-file-upload') handleMetasUpload(e);
   });
 
   /* Também re-renderizar R&S ao trocar de aba para ela */
@@ -214,19 +217,24 @@ document.getElementById('toggleSidebarMobile')
     renderCharts(currentCategory);
     if (currentCategory === 'recrutamento') renderRS();
     if (currentCategory === 'periodoExperiencia') renderPE();
+    if (currentCategory === 'reportSemanal') renderReportSemanal();
+    if (currentCategory === 'atingimentoMetas') renderAtingimentoMetas();
   });
   document.getElementById('area-select').addEventListener('change', () => {
     renderKPIs(currentCategory);
     renderCharts(currentCategory);
     if (currentCategory === 'recrutamento') renderRS();
     if (currentCategory === 'periodoExperiencia') renderPE();
+    if (currentCategory === 'reportSemanal') renderReportSemanal();
+    if (currentCategory === 'atingimentoMetas') renderAtingimentoMetas();
   });
 
   /* Upload */
   document.getElementById('file-upload').addEventListener('change', handleUpload);
 
   /* Exportar */
-  document.getElementById('exportBtn').addEventListener('click', exportData);
+  const exportBtn = document.getElementById('exportBtn');
+  if (exportBtn) exportBtn.addEventListener('click', exportData);
 
   /* Download modelo */
   document.getElementById('downloadTemplate').addEventListener('click', downloadTemplate);
@@ -315,6 +323,8 @@ function switchCategory(cat) {
   renderCharts(cat);
   if (cat === 'recrutamento' && rsData.length) renderRS();
   if (cat === 'periodoExperiencia' && peData.length) renderPE();
+  if (cat === 'reportSemanal' && reportData.length) renderReportSemanal();
+  if (cat === 'atingimentoMetas' && metasData.length) renderAtingimentoMetas();
 
   // Hero subtitle with key number for current category
   const heroSub = document.getElementById('headerSubtitle');
@@ -561,65 +571,76 @@ function handleUpload(e) {
 
       /* ── ABA CLIMA DAS ÁREAS ── */
       climaData = [];
-      const wsClima = wb.Sheets['Clima das Áreas'] || wb.Sheets['Clima das Areas'] || wb.Sheets['Clima'];
+      const wsClima = wb.Sheets['Clima das Áreas'] || wb.Sheets['Clima das Areas'] || wb.Sheets['Banco de Horas'] || wb.Sheets['Clima'];
+      console.log('[CLIMA] Abas disponíveis:', wb.SheetNames);
+      console.log('[CLIMA] wsClima encontrada:', !!wsClima);
       if (wsClima) {
         const rawClima = XLSX.utils.sheet_to_json(wsClima, { header: 1, defval: '' });
-        // Linha 0 = cabeçalho: [Mês, Área, área1, área2, ...]
-        const cabClima = rawClima[0] || [];
-        const AREAS_CLIMA = cabClima.slice(2).map(a => String(a).trim()).filter(Boolean);
+        // Nova estrutura flat (uma linha por colaborador):
+        // [0] MÊS DE REF. | [1] EMPRESA | [2] AREA | [3] GESTOR | [4] NOME | [5] CARGO
+        // [6] SALARIO | [7] POSITIVO | [8] NEGATIVO | [9] TOTAL | [10] SALDO_NEGATIVO_R$
         const MESES_PT = {
           'janeiro':'01','fevereiro':'02','março':'03','marco':'03',
           'abril':'04','maio':'05','junho':'06','julho':'07',
           'agosto':'08','setembro':'09','outubro':'10','novembro':'11','dezembro':'12'
         };
-        // Estrutura real: col0=Mês (preenchido em TODAS as linhas), col1=Métrica, col2..N=áreas
-        // Cada mês tem 4 linhas: Criticidade Geral, Banco de Horas TT, Número de Pessoas, Horas por Pessoa
-        const normStr = s => String(s||'').trim().toLowerCase()
-          .normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-
-        const parseHoras = (v) => {
-          if (v === '' || v === undefined || v === null) return null;
-          const n = Number(v);
-          if (isNaN(n)) return null;
-          // SheetJS lê tempo [h]:mm do Excel como fração de dia (ex: 8h30 = 0.354)
-          if (n > 0 && n < 5 && !Number.isInteger(n)) return Math.round(n * 24 * 100) / 100;
-          return n;
+        const normMesClima = s => {
+          if (!s && s !== 0) return null;
+          // Se for objeto Date (SheetJS às vezes converte automaticamente)
+          if (s instanceof Date) return String(s.getMonth() + 1).padStart(2,'0');
+          // Se for número serial do Excel (datas são números > 1000)
+          if (typeof s === 'number') {
+            if (s > 1000) {
+              const dt = new Date(Math.round((s - 25569) * 86400 * 1000));
+              return String(dt.getUTCMonth() + 1).padStart(2,'0');
+            }
+            // Número pequeno = mês direto (1-12)
+            if (s >= 1 && s <= 12) return String(Math.round(s)).padStart(2,'0');
+            return null;
+          }
+          const v = String(s).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+          if (MESES_PT[v]) return MESES_PT[v];
+          const n = parseInt(v);
+          return (!isNaN(n) && n >= 1 && n <= 12) ? String(n).padStart(2,'0') : null;
         };
-
-        // Agrupa todas as linhas por mês + métrica
-        const blocos = {}; // { 'janeiro': { criticidade: row, bancohoras: row, ... } }
-        for (let i = 1; i < rawClima.length; i++) {
-          const row     = rawClima[i] || [];
-          const mesRaw  = String(row[0] || '').trim();
-          const metrica = normStr(row[1]);
-          if (!mesRaw || !metrica) continue;
-
-          const mesKey = normStr(mesRaw);
-          if (!blocos[mesKey]) blocos[mesKey] = { mesNome: mesRaw, mesNum: MESES_PT[mesKey] || null };
-
-          if      (metrica.includes('criticidade'))                                   blocos[mesKey].criticidade   = row;
-          else if (metrica.includes('banco'))                                          blocos[mesKey].bancohoras    = row;
-          else if (metrica.includes('numero') || metrica.includes('pessoas'))         blocos[mesKey].pessoas       = row;
-          else if (metrica.includes('hora') && metrica.includes('pessoa'))            blocos[mesKey].horasPorPessoa= row;
-        }
-
-        // Gera climaData a partir dos blocos
-        Object.values(blocos).forEach(b => {
-          if (!b.mesNum) return;
-          AREAS_CLIMA.forEach((area, ai) => {
-            const col   = ai + 2;
-            const crit  = String((b.criticidade||[])[col] || '').trim();
-            const horas = parseHoras((b.bancohoras||[])[col]);
-            const rawP  = (b.pessoas||[])[col];
-            const pess  = rawP !== '' && rawP !== undefined && !isNaN(Number(rawP)) ? Number(rawP) : null;
-            const hpp   = parseHoras((b.horasPorPessoa||[])[col]);
-            climaData.push({ mes: b.mesNum, mesNome: b.mesNome, area,
-              criticidade: crit, bancohoras: horas, pessoas: pess, horasPorPessoa: hpp });
-          });
-        });
+        const parseHora = v => {
+          if (v === '' || v === null || v === undefined) return 0;
+          // SheetJS lê tempo Excel como fração de dia (ex: 7h12 = 0.3)
+          if (typeof v === 'number') {
+            // Fração de dia: valor entre 0 e 1 (ou negativo próximo de 0)
+            if (Math.abs(v) < 5) return v * 24;
+            return v; // já em horas
+          }
+          const s = String(v).trim();
+          // formato "hh:mm" ou "h:mm"
+          const m = s.match(/^(-?)(\d+):(\d{2})$/);
+          if (m) return (m[1]==='-'?-1:1) * (parseInt(m[2]) + parseInt(m[3])/60);
+          return Number(s) || 0;
+        };
         console.log('[CLIMA] Registros parseados:', climaData.length);
-        console.log('[CLIMA] Amostra raw row1 (Banco de Horas):', rawClima[1]);
-        console.log('[CLIMA] Primeiros registros:', climaData.slice(0,4).map(r=>({area:r.area,mes:r.mes,bancohoras:r.bancohoras,hpp:r.horasPorPessoa})));
+        for (let i = 1; i < rawClima.length; i++) {
+          const row  = rawClima[i] || [];
+          const mes  = normMesClima(row[0]);
+          const area = String(row[2] || '').trim();
+          const nome = String(row[4] || '').trim();
+          if (!mes || !area || !nome) continue;
+          climaData.push({
+            mes,
+            mesNome:  String(row[0] || '').trim(),
+            empresa:  String(row[1] || '').trim(),
+            area,
+            gestor:   String(row[3] || '').trim(),
+            nome,
+            cargo:    String(row[5] || '').trim(),
+            salario:  Number(row[6]) || 0,
+            positivo: parseHora(row[7]),
+            negativo: parseHora(row[8]),
+            total:    Number(row[9]) || 0,
+            saldoNeg: Number(row[10]) || 0,
+          });
+        }
+        console.log('[CLIMA] Registros parseados:', climaData.length);
+        console.log('[CLIMA] Amostra:', climaData[0]);
       }
 
       /* ── ABA MOVIMENTAÇÕES INTERNAS ── */
@@ -662,9 +683,10 @@ function handleUpload(e) {
             gestorNovo:    String(row[8]||'').trim(),
             cargoAtual:    String(row[9]||'').trim(),
             cargoNovo:     String(row[10]||'').trim(),
-            motivoGeral:   String(row[11]||'').trim(),
-            motivo:        String(row[12]||'').trim(),
-            mes:           normMesMovim(row[13]),
+            pctAumento:    String(row[11]||'').trim(),  // L: PORCENTAGEM DE AUMENTO
+            motivoGeral:   String(row[12]||'').trim(),  // M: MOTIVO GERAL
+            motivo:        String(row[13]||'').trim(),  // N: MOTIVO
+            mes:           normMesMovim(row[14]),       // O: MÊS (se existir)
           });
         }
         console.log('[MOVIM] Registros:', movimentData.length, '| Amostra:', movimentData[0]);
@@ -719,6 +741,43 @@ function handleUpload(e) {
           };
         }).filter(r => r.nome); // só linhas com nome preenchido
         console.log('[ATIVOS] Registros:', ativosData.length, '| Amostra:', ativosData[0]);
+      }
+
+      // ── ABA METAS ──
+      const wsMetas = wb.Sheets['Metas'] || wb.Sheets['metas'] || wb.Sheets['METAS'];
+      if (wsMetas) {
+        const rawMetas = XLSX.utils.sheet_to_json(wsMetas, { header: 1, defval: '' });
+        const MESES_COLS_M = [
+          { mes: '01', label: 'Jan', col: 9  },
+          { mes: '02', label: 'Fev', col: 10 },
+          { mes: '03', label: 'Mar', col: 11 },
+          { mes: '04', label: 'Abr', col: 13 },
+          { mes: '05', label: 'Mai', col: 14 },
+          { mes: '06', label: 'Jun', col: 15 },
+          { mes: '08', label: 'Ago', col: 8  },
+        ];
+        metasData = [];
+        let krAtual = null;
+        rawMetas.slice(1).forEach(row => {
+          const colA = String(row[0] || '').trim();
+          const colB = String(row[1] || '').trim();
+          const colC = String(row[2] || '').trim();
+          if (colA.match(/^#\s*\d+/)) {
+            const mesesVals = {};
+            MESES_COLS_M.forEach(m => { const v = row[m.col]; if (v !== '' && v !== null) mesesVals[m.mes] = { label: m.label, valor: v }; });
+            krAtual = { id: colA, titulo: colB, descricao: colC, peso: Number(row[3]) || 0, target: row[5] || '', status: String(row[16] || '').trim(), comentarios: String(row[17] || '').trim(), meses: mesesVals, acoes: [] };
+            metasData.push(krAtual);
+          } else if (krAtual && (colA || colB || colC)) {
+            const resp = (colA && colB) ? colA : '';
+            const acao = colB || colC || colA;
+            if (acao) krAtual.acoes.push({ responsavel: resp, acao });
+          }
+        });
+        console.log('[METAS] KRs:', metasData.length);
+        if (metasData.length) {
+          document.getElementById('emptyAtingimentoMetas').style.display = 'none';
+          document.getElementById('chartsAtingimento').style.display = 'block';
+        }
       }
 
       hasRealData = true;
@@ -785,11 +844,17 @@ function handleRsUpload(e) {
         return;
       }
 
-      // Usar header:1 para acessar por índice de coluna (A=0, B=1 ... W=22, X=23 ...)
+      // Estrutura real (A=0):
+      // A(0) VALIDADA SG&A | B(1) EMPRESA | C(2) ÁREA | D(3) DESC CC | E(4) CENTRO CUSTO
+      // F(5) GESTOR | G(6) CARGO | H(7) PRESENCIAL | I(8) NÍVEL | J(9) PESO
+      // K(10) REGIME | L(11) MOTIVO | M(12) COLAB SUBST | N(13) STATUS SUBST | O(14) CONFIDENCIAL
+      // P(15) TIPO PROCESSO | Q(16) MODELO | R(17) SALÁRIO | S(18) GRADE | T(19) MULTIPLICADOR
+      // U(20) RESP (recrutador) | V(21) DATA ABERTURA | W(22) DATA FECHAMENTO | X(23) MÊS FECHAMENTO
+      // Y(24) SLA ÚTEIS | Z(25) STATUS | AA(26) DECLÍNIO | AB(27) MÊS DECLÍNIO (texto)
+      // AC(28) NOME CONTRATADO | AD(29) DATA ADMISSÃO | AE(30) TTF ÚTEIS | AF(31) TTS ÚTEIS
+      // AG(32) FONTE | AH(33) REF AUMENTO + INATIVO
       const rawArr = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
       if (rawArr.length < 2) { toast('Aba R&S vazia.', 'error'); return; }
-
-      // Pular linha de cabeçalho (idx 0), processar a partir da linha 1
       rsData = rawArr.slice(1).map(row => ({
         dataAbertura:   row[22],  // W
         dataFechamento: row[23],  // X
@@ -802,6 +867,7 @@ function handleRsUpload(e) {
         cargo:          String(row[6]  || '').trim(), // G
         nivel:          String(row[8]  || '').trim(), // I
         peso:           row[9],   // J
+        motivo:         String(row[11] || '').trim(), // L - MOTIVO (aumento quadro/substituição)
         salario:        Number(row[17]) || 0,         // R
         gestor:         String(row[5]  || '').trim(), // F
         recrutador:     String(row[21] || '').trim(), // V
@@ -840,6 +906,408 @@ function clearRsData() {
   if (window._rsChartNivel)  { window._rsChartNivel.destroy();  window._rsChartNivel  = null; }
   if (window._rsChartRec)    { window._rsChartRec.destroy();    window._rsChartRec    = null; }
   if (window._rsChartFontes) { window._rsChartFontes.destroy(); window._rsChartFontes = null; }
+}
+
+
+/* ── REPORT SEMANAL — upload e renderização ── */
+let reportData = []; // { data, semana, recrutadora, vaga, candidato, status, mes }
+
+function handleReportUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rawArr = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      if (rawArr.length < 2) { toast('Planilha vazia.', 'error'); return; }
+
+      const MESES_PT = { 'janeiro':'01','fevereiro':'02','março':'03','marco':'03','abril':'04','maio':'05','junho':'06','julho':'07','agosto':'08','setembro':'09','outubro':'10','novembro':'11','dezembro':'12' };
+
+      reportData = rawArr.slice(1).map(row => {
+        // A=0: Data | B=1: Semana (data início da semana) | C=2: Recrutadora | D=3: Vaga | E=4: Candidato | F=5: Status
+        const parseXlDate = v => {
+          if (!v && v !== 0) return null;
+          let dt;
+          if (typeof v === 'number')  dt = new Date(Math.round((v - 25569) * 86400 * 1000));
+          else if (v instanceof Date) dt = v;
+          else                        dt = new Date(String(v));
+          return (dt && !isNaN(dt)) ? dt : null;
+        };
+        const fmtDt = dt => dt
+          ? `${String(dt.getUTCDate()).padStart(2,'0')}/${String(dt.getUTCMonth()+1).padStart(2,'0')}/${dt.getUTCFullYear()}`
+          : null;
+
+        const dtA    = parseXlDate(row[0]);
+        const dtB    = parseXlDate(row[1]);
+        const mes      = dtA ? String(dtA.getUTCMonth() + 1).padStart(2, '0') : null;
+        const diaLabel = dtA ? `${String(dtA.getUTCDate()).padStart(2,'0')}/${String(dtA.getUTCMonth()+1).padStart(2,'0')}` : null;
+        const dataFmt  = fmtDt(dtA);
+        const semana   = fmtDt(dtB) || String(row[1]||'').trim();
+
+        const status   = String(row[5]||'').trim();
+        const aprovado = /aprovad|aprovação|pass|apto/i.test(status);
+        return {
+          rawData: row[0], mes, diaLabel, dataFmt, semana,
+          recrutadora: String(row[2]||'').trim(),
+          vaga:        String(row[3]||'').trim(),
+          candidato:   String(row[4]||'').trim(),
+          status, aprovado,
+        };
+      }).filter(r => r.mes && r.recrutadora);
+
+      console.log('[REPORT] Registros:', reportData.length, '| Amostra:', reportData[0]);
+
+      document.getElementById('reportFileBadgeText').textContent = file.name;
+      document.getElementById('reportClearBtn').style.display = 'inline-flex';
+      document.getElementById('reportPdfBtn').style.display = 'inline-flex';
+      document.getElementById('emptyReportSemanal').style.display = 'none';
+      document.getElementById('chartsReportSemanal').style.display = 'block';
+      renderReportSemanal();
+      toast('Report Semanal importado!', 'success');
+    } catch(err) {
+      console.error(err);
+      toast('Erro ao processar: ' + err.message, 'error');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  e.target.value = '';
+}
+
+function clearReportData() {
+  reportData = [];
+  document.getElementById('reportFileBadgeText').textContent = '';
+  document.getElementById('reportClearBtn').style.display = 'none';
+  document.getElementById('reportPdfBtn').style.display = 'none';
+  document.getElementById('emptyReportSemanal').style.display = 'flex';
+  document.getElementById('chartsReportSemanal').style.display = 'none';
+  if (charts['chartReport']) { charts['chartReport'].destroy(); delete charts['chartReport']; }
+}
+
+/* ═══════════════════════════════════════════
+   ATINGIMENTO DE METAS
+═══════════════════════════════════════════ */
+function handleMetasUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const wb = XLSX.read(ev.target.result, { type: 'array' });
+    // Busca aba "Metas" ou usa a primeira
+    const wsName = wb.SheetNames.find(n => n.toLowerCase().includes('meta')) || wb.SheetNames[0];
+    const ws = wb.Sheets[wsName];
+    const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+    // Estrutura: col A=KR/responsável, B=título/ação, C=descrição, D=peso
+    // Meses: I=Agosto(8), J=Janeiro(9), K=Fevereiro(10), L=Março(11), N=Abril(13), O=Maio(14), P=Junho(15), Q=Status(16)
+    const MESES_COLS = [
+      { mes: '01', label: 'Jan', col: 9  },
+      { mes: '02', label: 'Fev', col: 10 },
+      { mes: '03', label: 'Mar', col: 11 },
+      { mes: '04', label: 'Abr', col: 13 },
+      { mes: '05', label: 'Mai', col: 14 },
+      { mes: '06', label: 'Jun', col: 15 },
+      { mes: '08', label: 'Ago', col: 8  },
+    ];
+
+    metasData = [];
+    let krAtual = null;
+
+    raw.slice(1).forEach(row => {
+      const colA = String(row[0] || '').trim();
+      const colB = String(row[1] || '').trim();
+      const colC = String(row[2] || '').trim();
+
+      if (colA.match(/^#\s*\d+/)) {
+        // Nova linha de KR
+        const mesesVals = {};
+        MESES_COLS.forEach(m => { const v = row[m.col]; if (v !== '' && v !== null) mesesVals[m.mes] = { label: m.label, valor: v }; });
+        krAtual = {
+          id:       colA,
+          titulo:   colB,
+          descricao:colC,
+          peso:     Number(row[3]) || 0,
+          target:   row[5] || '',
+          status:   row[16] || '',
+          comentarios: String(row[17] || '').trim(),
+          meses:    mesesVals,
+          acoes:    [],
+        };
+        metasData.push(krAtual);
+      } else if (krAtual && (colA || colB || colC)) {
+        // Linha de ação
+        const resp = colA && !colB ? '' : colA;
+        const acao = colB || colC || colA;
+        if (acao) krAtual.acoes.push({ responsavel: resp, acao });
+      }
+    });
+
+    console.log('[METAS] KRs parseados:', metasData.length, metasData.map(k => k.id));
+    document.getElementById('emptyAtingimentoMetas').style.display = 'none';
+    document.getElementById('chartsAtingimento').style.display = 'block';
+    renderAtingimentoMetas();
+  };
+  reader.readAsArrayBuffer(file);
+  e.target.value = '';
+}
+
+function clearMetasData() {
+  metasData = [];
+  document.getElementById('chartsAtingimento').style.display = 'none';
+  document.getElementById('emptyAtingimentoMetas').style.display = 'flex';
+}
+
+function renderAtingimentoMetas() {
+  if (!metasData.length) return;
+
+  const mesSel = document.getElementById('month-select')?.value || '';
+  const MESES_LABEL_M = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const mesLabel = mesSel ? MESES_LABEL_M[parseInt(mesSel)-1] : 'Geral';
+
+  const STATUS_COR = {
+    'on track': '#107c10', 'concluído': '#107c10', 'concluido': '#107c10',
+    'em risco': '#ff8c00', 'atrasado': '#e81123', 'não iniciado': '#94a3b8',
+    'em andamento': '#0078d4',
+  };
+  const statusCor = s => {
+    const k = String(s||'').toLowerCase().trim();
+    return STATUS_COR[k] || '#94a3b8';
+  };
+
+  // ── KPI Cards de atingimento ──
+  const kpiRow = document.getElementById('metasKpiRow');
+  const total = metasData.length;
+  const concluidos   = metasData.filter(k => /conclu/i.test(String(k.status))).length;
+  const onTrack      = metasData.filter(k => /on.track|andamento/i.test(String(k.status))).length;
+  const emRisco      = metasData.filter(k => /risco|atrasad/i.test(String(k.status))).length;
+  const pctAtingimento = total ? Math.round((concluidos + onTrack) / total * 100) : 0;
+
+  if (kpiRow) kpiRow.innerHTML = `
+    <div class="metas-kpi-card" style="border-top:3px solid #0078d4">
+      <div class="metas-kpi-label">Total de KRs — ${mesLabel}</div>
+      <div class="metas-kpi-val">${total}</div>
+    </div>
+    <div class="metas-kpi-card" style="border-top:3px solid #107c10">
+      <div class="metas-kpi-label">On Track / Concluídos</div>
+      <div class="metas-kpi-val" style="color:#107c10">${concluidos + onTrack}</div>
+    </div>
+    <div class="metas-kpi-card" style="border-top:3px solid #ff8c00">
+      <div class="metas-kpi-label">Em Risco / Atrasados</div>
+      <div class="metas-kpi-val" style="color:#ff8c00">${emRisco}</div>
+    </div>
+    <div class="metas-kpi-card" style="border-top:3px solid #b4a0ff">
+      <div class="metas-kpi-label">Atingimento Geral</div>
+      <div class="metas-kpi-val" style="color:#b4a0ff">${pctAtingimento}%</div>
+    </div>`;
+
+  // ── Lista de OKRs ──
+  const listEl = document.getElementById('metasOkrList');
+  if (!listEl) return;
+
+  listEl.innerHTML = metasData.map((kr, idx) => {
+    const cor  = statusCor(kr.status);
+    const peso = kr.peso ? `${Math.round(kr.peso * 100)}%` : '';
+
+    // Meses: mostra todos ou só o selecionado
+    const mesesMostrar = mesSel
+      ? Object.entries(kr.meses).filter(([m]) => m === mesSel)
+      : Object.entries(kr.meses);
+
+    const mesesHtml = mesesMostrar.length ? `
+      <div class="okr-mes-grid">
+        ${mesesMostrar.map(([, d]) => `
+          <div class="okr-mes-card">
+            <div class="okr-mes-label">${d.label}</div>
+            <div class="okr-mes-val">${d.valor}</div>
+          </div>`).join('')}
+      </div>` : '';
+
+    const statusHtml = kr.status ? `
+      <span class="okr-status-badge" style="background:${cor}22;color:${cor};border:1px solid ${cor}44">
+        ${kr.status}
+      </span>` : '';
+
+    const acoesHtml = kr.acoes.length ? `
+      <div class="okr-acoes-title">Ações</div>
+      ${kr.acoes.map(a => `
+        <div class="okr-acao">
+          ${a.responsavel ? `<span class="okr-acao-resp">${a.responsavel}</span>` : ''}
+          <span>${a.acao}</span>
+        </div>`).join('')}` : '';
+
+    return `
+      <div class="okr-card" id="okr-${idx}">
+        <div class="okr-header" onclick="toggleOkr(${idx})">
+          <span class="okr-num">${kr.id}</span>
+          <span class="okr-titulo" style="flex:1;font-size:13px;font-weight:600;color:var(--text-primary)">${kr.titulo}</span>
+          ${peso ? `<span class="okr-peso">Peso: ${peso}</span>` : ''}
+          ${statusHtml}
+          <svg class="okr-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="okr-body">
+          ${kr.descricao ? `<div class="okr-descricao">${kr.descricao}</div>` : ''}
+          ${acoesHtml}
+          ${mesesHtml}
+          ${kr.comentarios ? `<div style="margin-top:10px;font-size:11.5px;color:var(--text-secondary)">💬 ${kr.comentarios}</div>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function toggleOkr(idx) {
+  const card = document.getElementById('okr-' + idx);
+  if (card) card.classList.toggle('open');
+}
+
+function filtrarTabelaReport(q) {
+  const tbody = document.getElementById('reportTabelaBody');
+  if (!tbody) return;
+  const termo = q.trim().toLowerCase();
+  tbody.querySelectorAll('tr').forEach(tr => {
+    const vaga = tr.cells[0]?.textContent?.toLowerCase() || '';
+    tr.style.display = (!termo || vaga.includes(termo)) ? '' : 'none';
+  });
+}
+
+function renderReportSemanal() {
+  if (!reportData.length) return;
+
+  const mesSel    = document.getElementById('month-select')?.value || '';
+  const semanaSel = document.getElementById('reportFiltroSemana')?.value || '';
+  const MESES_L   = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const MESES_N   = ['01','02','03','04','05','06','07','08','09','10','11','12'];
+  const t = chartTheme();
+
+  // Mostra/esconde filtro de semana
+  const semanaWrap = document.getElementById('reportSemanaWrap');
+  if (semanaWrap) semanaWrap.style.display = mesSel ? '' : 'none';
+
+  // Popula semanas do mês selecionado
+  const selSemana = document.getElementById('reportFiltroSemana');
+  if (selSemana && mesSel) {
+    const semanas = [...new Set(reportData.filter(r=>r.mes===mesSel).map(r=>r.semana).filter(Boolean))].sort();
+    const curVal  = selSemana.value;
+    selSemana.innerHTML = '<option value="">Todas as semanas</option>'
+      + semanas.map(s=>`<option value="${s}" ${s===curVal?'selected':''}>${s}</option>`).join('');
+  }
+
+  // Filtra dados
+  let D = mesSel ? reportData.filter(r=>r.mes===mesSel) : reportData;
+  if (semanaSel) D = D.filter(r=>r.semana===semanaSel);
+
+  const total    = D.length;
+  const aprovados= D.filter(r=>r.aprovado).length;
+  const conv     = total ? ((aprovados/total)*100).toFixed(1)+'%' : '—';
+  const recs     = [...new Set(D.map(r=>r.recrutadora).filter(Boolean))];
+
+  // Melhor conversão por recrutadora
+  let melhorRec = '—', melhorPct = '—';
+  recs.forEach(rec => {
+    const dr = D.filter(r=>r.recrutadora===rec);
+    const pct = dr.length ? dr.filter(r=>r.aprovado).length/dr.length*100 : 0;
+    if (melhorRec==='—' || pct > parseFloat(melhorPct)) { melhorRec=rec; melhorPct=pct.toFixed(1); }
+  });
+
+  // Preenche KPIs
+  document.getElementById('reportValTotal').textContent  = total;
+  document.getElementById('reportValConv').textContent   = conv;
+  document.getElementById('reportValRecs').textContent   = recs.length;
+  document.getElementById('reportValMelhor').textContent = melhorPct !== '—' ? melhorPct+'%' : '—';
+  document.getElementById('reportSubMelhor').textContent = melhorRec !== '—' ? melhorRec : '';
+  const mesLabel = mesSel ? MESES_L[parseInt(mesSel)-1] : 'Geral';
+  const semLabel = semanaSel ? ` · ${semanaSel}` : '';
+  document.getElementById('reportLblTotal').textContent = `Entrevistas — ${mesLabel}${semLabel}`;
+  document.getElementById('reportLblConv').textContent  = `Conversão — ${mesLabel}${semLabel}`;
+
+  // Cards por recrutadora
+  const recCardsEl = document.getElementById('reportRecCards');
+  if (recCardsEl) {
+    recCardsEl.innerHTML = recs.sort().map(rec => {
+      const dr   = D.filter(r=>r.recrutadora===rec);
+      const apr  = dr.filter(r=>r.aprovado).length;
+      const pct  = dr.length ? (apr/dr.length*100).toFixed(1) : '0.0';
+      const cor  = parseFloat(pct)>=50?'#107c10':parseFloat(pct)>=30?'#ff8c00':'#e81123';
+      return `<div class="ativos-kpi-card" style="flex:1;min-width:160px;border-top:3px solid ${cor}">
+        <div class="ativos-kpi-body">
+          <div class="ativos-kpi-label" style="font-size:11px">${rec}</div>
+          <div class="ativos-kpi-value" style="font-size:22px">${dr.length}</div>
+          <div style="font-size:11px;color:${cor};font-weight:600">${pct}% conversão</div>
+          <div style="font-size:10px;color:var(--text-secondary)">${apr} aprovados</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Gráfico
+  if (charts['chartReport']) { charts['chartReport'].destroy(); delete charts['chartReport']; }
+  const ctxR = document.getElementById('chartReportEntrevistas');
+  const titleEl = document.getElementById('reportChartTitle');
+  let labels=[], dataEnt=[], dataAprov=[];
+
+  if (!mesSel) {
+    // Por mês
+    labels = MESES_L;
+    dataEnt   = MESES_N.map(m => reportData.filter(r=>r.mes===m).length);
+    dataAprov = MESES_N.map(m => reportData.filter(r=>r.mes===m&&r.aprovado).length);
+    if (titleEl) titleEl.textContent = 'Entrevistas por Mês';
+  } else if (!semanaSel) {
+    // Por semana do mês
+    const semanas = [...new Set(D.map(r=>r.semana).filter(Boolean))].sort();
+    labels = semanas;
+    dataEnt   = semanas.map(s=>D.filter(r=>r.semana===s).length);
+    dataAprov = semanas.map(s=>D.filter(r=>r.semana===s&&r.aprovado).length);
+    if (titleEl) titleEl.textContent = `Entrevistas por Semana — ${mesLabel}`;
+  } else {
+    // Por dia da semana selecionada
+    const dias = [...new Set(D.map(r=>r.diaLabel).filter(Boolean))].sort();
+    labels = dias;
+    dataEnt   = dias.map(d=>D.filter(r=>r.diaLabel===d).length);
+    dataAprov = dias.map(d=>D.filter(r=>r.diaLabel===d&&r.aprovado).length);
+    if (titleEl) titleEl.textContent = `Entrevistas por Dia — ${semanaSel}`;
+  }
+
+  if (ctxR) {
+    charts['chartReport'] = new Chart(ctxR, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Total',    data: dataEnt,   backgroundColor: 'rgba(0,120,212,.75)',  borderRadius:4 },
+          { label: 'Aprovados',data: dataAprov, backgroundColor: 'rgba(16,124,16,.75)',  borderRadius:4 },
+        ]
+      },
+      options: {
+        responsive:true, maintainAspectRatio:true,
+        plugins:{ legend:{display:true,position:'top',labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:11}}}, tooltip:{backgroundColor:t.bg,titleColor:t.text,bodyColor:t.tick,borderWidth:1} },
+        scales:{ x:{ticks:{color:t.tick,font:{size:10}},grid:{color:t.grid},border:{display:false}}, y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}} }
+      }
+    });
+  }
+
+  // Tabela por vaga
+  const tbody = document.getElementById('reportTabelaBody');
+  if (tbody) {
+    const vagaMap = {};
+    D.forEach(r => {
+      const key = r.vaga + '||' + r.recrutadora;
+      if (!vagaMap[key]) vagaMap[key] = { vaga:r.vaga, rec:r.recrutadora, total:0, aprov:0 };
+      vagaMap[key].total++;
+      if (r.aprovado) vagaMap[key].aprov++;
+    });
+    const rows = Object.values(vagaMap).sort((a,b)=>b.total-a.total);
+    tbody.innerHTML = rows.length ? rows.map(r => {
+      const pct = r.total ? (r.aprov/r.total*100).toFixed(1) : '0.0';
+      const cor = parseFloat(pct)>=50?'#107c10':parseFloat(pct)>=30?'#ff8c00':'#e81123';
+      return `<tr>
+        <td>${r.vaga||'—'}</td>
+        <td>${r.rec||'—'}</td>
+        <td style="text-align:center">${r.total}</td>
+        <td style="text-align:center">${r.aprov}</td>
+        <td style="color:${cor};font-weight:600;text-align:center">${pct}%</td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="5" style="text-align:center;color:var(--text-secondary)">Sem dados</td></tr>`;
+  }
 }
 
 /* ── PERÍODO DE EXPERIÊNCIA — upload ── */
@@ -1324,12 +1792,16 @@ function openPeModal(key) {
 
 /* ── Converte serial Excel para objeto Date (UTC para evitar fuso horário) ── */
 function excelDateToDate(serial) {
-  if (!serial || typeof serial !== 'number') return null;
-  // Usar UTC para evitar que fuso horário mude o mês
+  if (!serial) return null;
+  // SheetJS pode entregar Date objects ou números seriais
+  if (serial instanceof Date) {
+    return isNaN(serial) ? null : new Date(Date.UTC(serial.getFullYear(), serial.getMonth(), serial.getDate()));
+  }
+  if (typeof serial !== 'number') return null;
+  // Serial numérico do Excel (ex: 45678)
   const ms = (serial - 25569) * 86400 * 1000;
   const dt = new Date(ms);
   if (isNaN(dt)) return null;
-  // Retornar data em UTC
   return new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate()));
 }
 
@@ -1378,7 +1850,15 @@ function renderRS() {
 
   const getMesAbertura   = r => getMesDeSerial(r.dataAbertura);
   const getMesFechamento = r => getMesDeSerial(r.dataFechamento);
-  const getMesDeclinio   = r => getMesDeNumero(r.mesDeclinio);
+  const MESES_MAP_RS = {
+    'janeiro':'01','fevereiro':'02','março':'03','marco':'03','abril':'04',
+    'maio':'05','junho':'06','julho':'07','agosto':'08','setembro':'09',
+    'outubro':'10','novembro':'11','dezembro':'12'
+  };
+  const getMesDeclinio = r => {
+    const v = String(r.mesDeclinio || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    return MESES_MAP_RS[v] || (v.match(/^\d{1,2}$/) ? v.padStart(2,'0') : null);
+  };
 
   // Filtra por mês usando a função extratora fornecida
   const porMes = (arr, fn, mes) => mes ? arr.filter(r => fn(r) === mes) : arr;
@@ -1416,8 +1896,19 @@ function renderRS() {
   }).length;
 
   // ── DECLÍNIOS ──
-  const decAtual = porMes(D, getMesDeclinio, mesSel).filter(r => r.declinio !== '' && r.declinio !== undefined).length;
-  const decAnt   = mesAnt ? porMes(D, getMesDeclinio, mesAnt).filter(r => r.declinio !== '' && r.declinio !== undefined).length : null;
+  // ── DECLÍNIOS: soma os valores numéricos da col AB, filtrado pelo mês da col AC ──
+  const decRows = mesSel
+    ? D.filter(r => getMesDeclinio(r) === mesSel)
+    : D;
+  const decAtual = decRows.reduce((s, r) => {
+    const n = parseInt(r.declinio);
+    return s + (isNaN(n) ? 0 : n);
+  }, 0);
+  const decRowsAnt = mesAnt ? D.filter(r => getMesDeclinio(r) === mesAnt) : [];
+  const decAnt = decRowsAnt.reduce((s, r) => {
+    const n = parseInt(r.declinio);
+    return s + (isNaN(n) ? 0 : n);
+  }, 0) || null;
   const decPct   = fecAtual > 0 ? ((decAtual / fecAtual) * 100).toFixed(1) : '0.0';
 
   // ── SLA MÉDIO (fechadas) ──
@@ -1457,17 +1948,57 @@ function renderRS() {
   document.getElementById('rsDecliniosPct').textContent     = `${decPct}% das vagas fechadas`;
   document.getElementById('rsSlaMedia').textContent         = slaMedia ? `${slaMedia} dias` : '—';
 
+  // Guarda listas para os modais de vagas abertas/fechadas
+  window._rsVagasAbertas  = mesSel ? D.filter(r => r.status === 'aberta'  && getMesAbertura(r)   === mesSel) : D.filter(r => r.status === 'aberta');
+  window._rsVagasFechadas = mesSel ? D.filter(r => isFechada(r)           && getMesFechamento(r) === mesSel) : D.filter(isFechada);
+
   // ── METAS R&S ──
   // Meta: no máximo 10% das vagas fechadas com SLA > 60 dias
   const vagasFechadasMes = porMes(D, getMesFechamento, mesSel).filter(isFechada);
-  const acima60  = vagasFechadasMes.filter(r => r.sla !== '' && Number(r.sla) > 60).length;
+  const vagasAcima60 = D.filter(r => r.sla !== '' && !isNaN(Number(r.sla)) && Number(r.sla) > 60);
+  const vagasAcima60Fil = mesSel
+    ? vagasAcima60.filter(r => getMesAbertura(r) === mesSel || getMesFechamento(r) === mesSel)
+    : vagasAcima60;
+  const acima60  = vagasAcima60Fil.length;
   const pctSla60 = vagasFechadasMes.length ? Math.round(acima60 / vagasFechadasMes.length * 100) : 0;
+  window._vagasAcima60 = vagasAcima60Fil;
   const metaSla60El = document.getElementById('rsMetaSla');
   if (metaSla60El) {
     const ok = pctSla60 <= 10;
-    metaSla60El.textContent = `${pctSla60}% acima de 60 dias (meta: ≤10%)`;
+    metaSla60El.textContent = `${acima60} vagas (${pctSla60}%) acima de 60 dias (meta: ≤10%)`;
     metaSla60El.className = `rs-meta-badge ${ok ? 'rs-meta-ok' : 'rs-meta-alert'}`;
+    metaSla60El.style.cursor = 'pointer';
+    metaSla60El.onclick = () => {
+      const lista = window._vagasAcima60 || [];
+      const title = document.getElementById('expModalTitle');
+      const body  = document.getElementById('expModalBody');
+      const overlay = document.getElementById('expModalOverlay');
+      if (!title||!body||!overlay) return;
+      title.textContent = `Vagas acima de 60 dias — ${lista.length} vagas`;
+      body.innerHTML = lista.length ? `
+        <table class="exp-list-table">
+          <thead><tr><th>Cargo</th><th>Área</th><th>Recrutador</th><th>SLA (dias)</th><th>Status</th></tr></thead>
+          <tbody>${lista.sort((a,b)=>Number(b.sla)-Number(a.sla)).map(r=>`
+            <tr>
+              <td>${r.cargo||'—'}</td>
+              <td>${r.area||'—'}</td>
+              <td>${r.recrutador||'—'}</td>
+              <td><strong>${r.sla}</strong></td>
+              <td>${r.status||'—'}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>` : '<div style="padding:16px;color:var(--text-secondary)">Nenhuma vaga acima de 60 dias.</div>';
+      overlay.classList.add('active');
+      document.body.style.overflow = 'hidden';
+    };
   }
+  // Armazena dados de declínios para o modal
+  window._decliniosData = {
+    lista: mesSel
+      ? D.filter(r => getMesDeclinio(r) === mesSel && r.declinio && parseInt(r.declinio) > 0)
+      : D.filter(r => r.declinio && parseInt(r.declinio) > 0)
+  };
+
   // Meta: no máximo 5% de declínio
   const decPctNum = fecAtual > 0 ? Math.round(decAtual / fecAtual * 100) : 0;
   const metaDecEl = document.getElementById('rsMetaDec');
@@ -1475,6 +2006,8 @@ function renderRS() {
     const ok = decPctNum <= 5;
     metaDecEl.textContent = `${decPctNum}% de declínio (meta: ≤5%)`;
     metaDecEl.className = `rs-meta-badge ${ok ? 'rs-meta-ok' : 'rs-meta-alert'}`;
+    metaDecEl.style.cursor = 'pointer';
+    metaDecEl.onclick = () => openDecliniosModal();
   }
   document.getElementById('rsVagasCanceladas').textContent  = canAtual;
 
@@ -1667,20 +2200,29 @@ function renderRS() {
     }
   }
 
-  // ── GRÁFICO 2: STATUS (doughnut filtrado por mês) ──
-  const rsParaStatus = mesSel
-    ? D.filter(r => getMesAbertura(r) === mesSel || getMesFechamento(r) === mesSel)
-    : D;
+  // ── GRÁFICO 2: STATUS (doughnut) ──
+  // Abertas: status = "aberta" E data de abertura (col W) no mês selecionado
+  // Fechadas: status = "fechada" E data de fechamento (col X) no mês selecionado
+  // Sem filtro de mês: conta todas pelo status atual
+  let cntAberta, cntFechada, cntCancelada, cntOutros;
+  if (mesSel) {
+    cntAberta    = D.filter(r => r.status === 'aberta'    && getMesAbertura(r)   === mesSel).length;
+    cntFechada   = D.filter(r => r.status === 'fechada'   && getMesFechamento(r) === mesSel).length;
+    cntCancelada = D.filter(r => r.status === 'cancelada' && (getMesFechamento(r) === mesSel || getMesAbertura(r) === mesSel)).length;
+    cntOutros    = D.filter(r => !['aberta','fechada','cancelada'].includes(r.status) && (getMesAbertura(r) === mesSel || getMesFechamento(r) === mesSel)).length;
+  } else {
+    cntAberta    = D.filter(r => r.status === 'aberta').length;
+    cntFechada   = D.filter(r => r.status === 'fechada').length;
+    cntCancelada = D.filter(r => r.status === 'cancelada').length;
+    cntOutros    = D.filter(r => !['aberta','fechada','cancelada'].includes(r.status) && r.status).length;
+  }
 
-  const statusCount = {};
-  rsParaStatus.forEach(r => {
-    const s = r.status ? (r.status.charAt(0).toUpperCase() + r.status.slice(1)) : 'Sem status';
-    statusCount[s] = (statusCount[s] || 0) + 1;
-  });
-  const PAL_STATUS = { 'Fechada':'#107c10', 'Aberta':'#0078d4', 'Cancelada':'#e81123', 'Em andamento':'#ff8c00', 'Sem status':'#94a3b8' };
-  const statusLabels = Object.keys(statusCount).sort();
-  const statusVals   = statusLabels.map(s => statusCount[s]);
-  const statusColors = statusLabels.map(s => PAL_STATUS[s] || '#b4a0ff');
+  const statusLabels = [], statusVals = [], statusColors = [];
+  const PAL_STATUS = { 'Aberta':'#0078d4', 'Fechada':'#107c10', 'Cancelada':'#e81123', 'Em andamento':'#ff8c00' };
+  if (cntAberta)    { statusLabels.push('Aberta');    statusVals.push(cntAberta);    statusColors.push(PAL_STATUS['Aberta']); }
+  if (cntFechada)   { statusLabels.push('Fechada');   statusVals.push(cntFechada);   statusColors.push(PAL_STATUS['Fechada']); }
+  if (cntCancelada) { statusLabels.push('Cancelada'); statusVals.push(cntCancelada); statusColors.push(PAL_STATUS['Cancelada']); }
+  if (cntOutros)    { statusLabels.push('Outros');    statusVals.push(cntOutros);    statusColors.push('#94a3b8'); }
 
   if (window._rsChartStatus) { window._rsChartStatus.destroy(); window._rsChartStatus = null; }
   const ctxS = document.getElementById('chartRsStatus');
@@ -1977,9 +2519,12 @@ function clearData() {
   cotasJaData  = [];
   climaData    = [];
   movimentData = [];
+  metasData    = [];
   hasRealData = false;
   document.getElementById('fileBadge').style.display = 'none';
   document.getElementById('lastUpdate').textContent = 'Aguardando dados';
+  document.getElementById('chartsAtingimento').style.display = 'none';
+  document.getElementById('emptyAtingimentoMetas').style.display = 'flex';
   destroyCharts();
   renderKPIs(currentCategory);
   renderCharts(currentCategory);
@@ -2074,6 +2619,130 @@ const mOK = !month || mesRegistro === month;
    KPIs
 ═══════════════════════════════════════════ */
 /* ── SEMÁFORO DE RISCO ── */
+function openVagasModal(tipo) {
+  const lista = tipo === 'abertas'
+    ? (window._rsVagasAbertas  || [])
+    : (window._rsVagasFechadas || []);
+  const titulo = tipo === 'abertas' ? 'Vagas Abertas' : 'Vagas Fechadas';
+
+  const title   = document.getElementById('expModalTitle');
+  const body    = document.getElementById('expModalBody');
+  const overlay = document.getElementById('expModalOverlay');
+  if (!title||!body||!overlay) return;
+
+  title.textContent = `${titulo} — ${lista.length} vagas`;
+
+  const fmtDate = v => {
+    if (!v) return '—';
+    let dt = typeof v === 'number'
+      ? new Date(Math.round((v - 25569) * 86400 * 1000))
+      : new Date(v);
+    return isNaN(dt) ? '—' : `${String(dt.getUTCDate()).padStart(2,'0')}/${String(dt.getUTCMonth()+1).padStart(2,'0')}/${dt.getUTCFullYear()}`;
+  };
+
+  body.innerHTML = lista.length ? `
+    <table class="exp-list-table">
+      <thead>
+        <tr>
+          <th>Cargo</th>
+          <th>Gestor</th>
+          <th>Área</th>
+          <th>Motivo</th>
+          <th>SLA</th>
+          <th>${tipo === 'abertas' ? 'Abertura' : 'Fechamento'}</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${lista.map(r => `
+          <tr>
+            <td>${r.cargo||'—'}</td>
+            <td>${r.gestor||'—'}</td>
+            <td>${r.area||'—'}</td>
+            <td>${r.motivo||'—'}</td>
+            <td>${r.sla||'—'}</td>
+            <td>${tipo === 'abertas' ? fmtDate(r.dataAbertura) : fmtDate(r.dataFechamento)}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>` : `<div style="padding:16px;color:var(--text-secondary)">Nenhuma vaga ${tipo === 'abertas' ? 'aberta' : 'fechada'} encontrada.</div>`;
+
+  overlay.classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+
+function openDecliniosModal() {
+  const bd = window._decliniosData;
+  const lista = bd?.lista || [];
+  const title   = document.getElementById('expModalTitle');
+  const body    = document.getElementById('expModalBody');
+  const overlay = document.getElementById('expModalOverlay');
+  if (!title||!body||!overlay) return;
+  title.textContent = `Vagas com Declínios — ${lista.length} vagas`;
+  body.innerHTML = lista.length ? `
+    <table class="exp-list-table">
+      <thead><tr><th>Cargo</th><th>Área</th><th>Recrutador</th><th>Mês</th><th>Declínios</th></tr></thead>
+      <tbody>${[...lista].sort((a,b)=>parseInt(b.declinio)-parseInt(a.declinio)).map(r=>`
+        <tr>
+          <td>${r.cargo||'—'}</td>
+          <td>${r.area||'—'}</td>
+          <td>${r.recrutador||'—'}</td>
+          <td>${r.mesDeclinio||'—'}</td>
+          <td><strong>${r.declinio}</strong></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>` : '<div style="padding:16px;color:var(--text-secondary)">Nenhum declínio registrado.</div>';
+  overlay.classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+
+function climaLinhaSelectAll(check) {
+  document.querySelectorAll('.clima-linha-check').forEach(c => c.checked = check);
+  renderCharts('clima');
+}
+
+function openClimaAreaModal(area) {
+  const areaMap = window._climaAreaMap;
+  if (!areaMap || !areaMap[area]) return;
+  const pessoas = areaMap[area].pessoas;
+  const title=document.getElementById('expModalTitle'), body=document.getElementById('expModalBody'), overlay=document.getElementById('expModalOverlay');
+  if (!title||!body||!overlay) return;
+  title.textContent = area + ' — ' + pessoas.length + ' colaboradores';
+  const fmtHM = v => {
+    if (!v && v !== 0) return '—';
+    let m = Math.round(Number(v) * 60);
+    const neg = m < 0, a = Math.abs(m);
+    return (neg ? '-' : '') + Math.floor(a/60) + 'h' + String(a%60).padStart(2,'0');
+  };
+  const fmtBRL = v => v.toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0});
+  const ord = [...pessoas].sort((a,b) => b.negativo - a.negativo);
+  body.innerHTML = `
+    <table class="exp-list-table">
+      <thead>
+        <tr>
+          <th>Nome</th>
+          <th>Cargo</th>
+          <th>Banco Horas</th>
+          <th>Saldo (R$)</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${ord.map(r => {
+          const saldoLiq = (r.total || 0) - (r.saldoNeg || 0);
+          const cor = saldoLiq >= 0 ? '#107c10' : '#e81123';
+          const bhTotal = r.positivo - r.negativo;
+          const corBH = bhTotal >= 0 ? '#107c10' : '#e81123';
+          return `<tr>
+            <td>${r.nome}</td>
+            <td>${r.cargo||'—'}</td>
+            <td style="color:${corBH};font-weight:600">${fmtHM(bhTotal)}</td>
+            <td style="color:${cor};font-weight:600">${fmtBRL(saldoLiq)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+  overlay.classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+
 function openTurnoverModal() {
   const bd = window._turnoverBreakdown;
   if (!bd) return;
@@ -2208,7 +2877,13 @@ function renderKPIs(cat) {
   const abaSemDadosAinda = cat === 'reportSemanal' || cat === 'atingimentoMetas' || cat === 'periodoExperiencia';
   if (abaSemDadosAinda) { if (kpiSection) kpiSection.style.display = 'none'; return; }
   if (cat !== 'dashboard' && !hasRealData && !abaComDadosProprios) { if (kpiSection) kpiSection.style.display = 'none'; return; }
-  if (cat === 'cotas' || cat === 'recrutamento') { if (kpiSection) kpiSection.style.display = 'none'; return; }
+  if (cat === 'cotas' || cat === 'recrutamento') {
+    if (kpiSection) kpiSection.style.display = 'none';
+    // Reset grid so next aba doesn't inherit wrong column count
+    const kpiCont = document.querySelector('.kpi-container');
+    if (kpiCont) { kpiCont.style.gridTemplateColumns = ''; kpiCont.removeAttribute('data-layout'); }
+    return;
+  }
   if (kpiSection) kpiSection.style.display = '';
 
   let kpis;
@@ -3029,7 +3704,13 @@ function renderAtivos() {
     'Especialista', 'Analista', 'Assistente', 'Estagiário', 'Estagiario', 'Jovem Aprendiz'
   ];
   const clasMap = {};
-  filtered.forEach(d => { const c = d.classificacao || 'Não informado'; clasMap[c] = (clasMap[c]||0)+1; });
+  const clasSal = {}; // salários por classificação para tooltip
+  filtered.forEach(d => {
+    const c = d.classificacao || 'Não informado';
+    clasMap[c] = (clasMap[c]||0)+1;
+    if (!clasSal[c]) clasSal[c] = [];
+    if (d.Salário || d.salario) clasSal[c].push(Number(d.Salário || d.salario || 0));
+  });
   const normAtivos = s => s.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const normMapAtivos = SENIORITY_ORDER_ATIVOS.reduce((m, v, i) => { m[normAtivos(v)] = i; return m; }, {});
   const rankOfAtivos = label => { const r = normMapAtivos[normAtivos(label)]; return r !== undefined ? r : 999; };
@@ -3041,10 +3722,38 @@ function renderAtivos() {
       const palette = ['#2d3748','#4a5568','#553c9a','#7030a0','#0078d4','#0097a7','#107c10','#ff8c00','#e65c00','#d83b81','#a31515'];
       return palette[i % palette.length];
     });
+    const fmtBRL = v => v.toLocaleString('pt-BR', { style:'currency', currency:'BRL', maximumFractionDigits:0 });
     charts['chartAtivosClassificacao'] = new Chart(ctxC, {
       type: 'bar',
       data: { labels: clasEntries.map(e=>e[0]), datasets: [{ label: 'Colaboradores', data: clasEntries.map(e=>e[1]), backgroundColor: clasColors, borderRadius: 5, borderSkipped: false }] },
-      options: { ...baseOptions({ plugins: { legend: { display: false } }, scales: { x: { ticks: { color: t.tick, font: { size: 10 }, maxRotation: 35 } }, y: { beginAtZero: true, ticks: { color: t.tick, stepSize: 1 } } } }), responsive: true, maintainAspectRatio: false }
+      options: {
+        ...baseOptions({ plugins: { legend: { display: false } }, scales: { x: { ticks: { color: t.tick, font: { size: 10 }, maxRotation: 35 } }, y: { beginAtZero: true, ticks: { color: t.tick, stepSize: 1 } } } }),
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: t.bg, titleColor: t.text, bodyColor: t.tick,
+            borderWidth: 1, borderColor: isDark()?'rgba(255,255,255,.1)':'rgba(0,0,0,.08)',
+            padding: 10,
+            callbacks: {
+              label: ctx => {
+                const label = ctx.label;
+                const sals = (clasSal[label] || []).filter(s => s > 0);
+                const lines = [`Colaboradores: ${ctx.parsed.y}`];
+                if (sals.length) {
+                  const min  = Math.min(...sals);
+                  const max  = Math.max(...sals);
+                  const avg  = sals.reduce((a,b)=>a+b,0) / sals.length;
+                  lines.push(`Mínimo: ${fmtBRL(min)}`);
+                  lines.push(`Média: ${fmtBRL(avg)}`);
+                  lines.push(`Máximo: ${fmtBRL(max)}`);
+                }
+                return lines;
+              }
+            }
+          }
+        }
+      }
     });
   }
 
@@ -3360,173 +4069,242 @@ case 'atestados': {
 
       const mesSel      = document.getElementById('month-select').value;
       const MESES_LABEL = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-      const MESES_NUM   = ['01','02','03','04','05','06','07','08','09','10','11','12'];
       const t = chartTheme();
 
-      // Banco de horas = saldo corrente. Sem mês → mês atual do calendário.
-      const mesAtual  = String(new Date().getMonth() + 1).padStart(2, '0');
-      const mesRef    = mesSel || mesAtual;
-      const mesAntRef = mesRef ? getMesAnterior(mesRef) : null;
-      const mesRefLabel = mesRef ? MESES_LABEL[parseInt(mesRef)-1] : '—';
+      // Formata horas decimais em Xh MM
+      const fmtHM = (v) => {
+        if (v === null || v === undefined || isNaN(Number(v))) return '\u2014';
+        let totalMin = Math.round(Number(v) * 60);
+        const neg = totalMin < 0, abs = Math.abs(totalMin);
+        return (neg ? '-' : '') + Math.floor(abs/60) + 'h' + String(abs%60).padStart(2,'0');
+      };
 
-      const CD    = mesRef    ? climaData.filter(r => r.mes === mesRef)    : [];
-      const CDAnt = mesAntRef ? climaData.filter(r => r.mes === mesAntRef) : [];
-      const todasAreas = [...new Set(climaData.map(r => r.area))];
+      const mesAtual    = String(new Date().getMonth() + 1).padStart(2,'0');
+      const mesRef      = mesSel || mesAtual;
+      const mesAntRef   = getMesAnterior(mesRef);
+      const mesRefLabel = MESES_LABEL[parseInt(mesRef)-1] || '\u2014';
 
-      const CRIT_COLOR = { 'Alto':'#e81123','Médio':'#ff8c00','Medio':'#ff8c00','Baixo':'#107c10','':'#94a3b8' };
+      // Popula filtros (sempre atualiza)
+      const selArea   = document.getElementById('climaFiltroArea');
+      const selGestor = document.getElementById('climaFiltroGestor');
+      if (selArea) {
+        const areaAtual = selArea.value;
+        selArea.innerHTML = '<option value="">Todas as áreas</option>';
+        [...new Set(climaData.map(r=>r.area).filter(Boolean))].sort()
+          .forEach(v => { const o=document.createElement('option'); o.value=v; o.textContent=v; if(v===areaAtual) o.selected=true; selArea.appendChild(o); });
+      }
+      if (selGestor) {
+        const gestorAtual = selGestor.value;
+        selGestor.innerHTML = '<option value="">Todos os gestores</option>';
+        [...new Set(climaData.map(r=>r.gestor).filter(Boolean))].sort()
+          .forEach(v => { const o=document.createElement('option'); o.value=v; o.textContent=v; if(v===gestorAtual) o.selected=true; selGestor.appendChild(o); });
+      }
+      const filtroArea   = selArea?.value   || '';
+      const filtroGestor = selGestor?.value || '';
 
-      // ── KPI CARDS GLOBAIS (4) ──
-      const criticas      = CD.filter(r => r.criticidade === 'Alto').length;
-      const criticasAnt   = CDAnt.filter(r => r.criticidade === 'Alto').length;
-      const totalHoras    = CD.filter(r => r.bancohoras !== null).reduce((s,r)=>s+(r.bancohoras||0),0);
-      const totalHorasAnt = CDAnt.filter(r => r.bancohoras !== null).reduce((s,r)=>s+(r.bancohoras||0),0);
-      const totalPessoas    = CD.filter(r=>r.pessoas>0).reduce((s,r)=>s+r.pessoas,0);
-      const totalPessoasAnt = CDAnt.filter(r=>r.pessoas>0).reduce((s,r)=>s+r.pessoas,0);
-      const hppRows    = CD.filter(r=>r.horasPorPessoa!==null);
-      const hppMedia   = hppRows.length ? hppRows.reduce((s,r)=>s+r.horasPorPessoa,0)/hppRows.length : null;
-      const hppRowsAnt = CDAnt.filter(r=>r.horasPorPessoa!==null);
-      const hppMediaAnt= hppRowsAnt.length ? hppRowsAnt.reduce((s,r)=>s+r.horasPorPessoa,0)/hppRowsAnt.length : null;
+      const CD    = climaData.filter(r => r.mes === mesRef
+        && (!filtroArea   || r.area   === filtroArea)
+        && (!filtroGestor || r.gestor === filtroGestor));
+      const CDAnt = climaData.filter(r => r.mes === mesAntRef
+        && (!filtroArea   || r.area   === filtroArea)
+        && (!filtroGestor || r.gestor === filtroGestor));
+      console.log('[CLIMA] mesRef:', mesRef, '| CD:', CD.length, '| CDAnt:', CDAnt.length);
 
-      const kpiClima = [
-        { id:'kpi-v1', lbl:'Áreas em Alerta (Alto)',              val: criticas||'0',       varV: criticas-criticasAnt,          ant: criticasAnt,    inv:true  },
-        { id:'kpi-v2', lbl:`Banco de Horas Total — ${mesRefLabel}`, val: fmtHoras(totalHoras), varV: totalHoras-totalHorasAnt, ant: totalHorasAnt, inv:true },
-        { id:'kpi-v3', lbl:`Pessoas Mapeadas — ${mesRefLabel}`,   val: totalPessoas||'—',   varV: totalPessoas-totalPessoasAnt,  ant: totalPessoasAnt, inv:false },
-        { id:'kpi-v4', lbl:`Média Horas/Pessoa — ${mesRefLabel}`, val: fmtHoras(hppMedia), varV: hppMedia&&hppMediaAnt?hppMedia-hppMediaAnt:null, ant:hppMediaAnt, inv:true },
-        { id:'kpi-v5', lbl:'', val:'', varV:null, ant:null, inv:false },
-        { id:'kpi-v6', lbl:'', val:'', varV:null, ant:null, inv:false },
-      ];
-      document.querySelectorAll('.kpi-card').forEach((c,i)=>{ c.style.display=i<4?'':'none'; });
-      const kpiContainer = document.querySelector('.kpi-container');
-      if (kpiContainer) kpiContainer.style.gridTemplateColumns='repeat(4,1fr)';
+      // ── KPI CARDS (4) ──
+      const totalPos      = CD.reduce((s,r) => s + r.positivo, 0);
+      const totalPosAnt   = CDAnt.reduce((s,r) => s + r.positivo, 0);
+      const totalNeg      = CD.reduce((s,r) => s + r.negativo, 0);
+      const totalNegAnt   = CDAnt.reduce((s,r) => s + r.negativo, 0);
+      const totalSaldo    = CD.reduce((s,r) => s + r.saldoNeg, 0);
+      const totalSaldoAnt = CDAnt.reduce((s,r) => s + r.saldoNeg, 0);
+      const totalPessoas  = CD.length, totalPessoasAnt = CDAnt.length;
+
       const svgUp = '<svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><polygon points="5,1 9,8 1,8"/></svg>';
       const svgDn = '<svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><polygon points="5,9 9,2 1,2"/></svg>';
+      const totalCustoPos    = CD.reduce((s,r) => s + (r.total    || 0), 0);
+      const totalCustoNeg    = CD.reduce((s,r) => s + (r.saldoNeg || 0), 0);
+      const totalCustoPosAnt = CDAnt.reduce((s,r) => s + (r.total    || 0), 0);
+      const totalCustoNegAnt = CDAnt.reduce((s,r) => s + (r.saldoNeg || 0), 0);
+      const fmtBRL = v => Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0});
+
+      const kpiClima = [
+        { id:'kpi-v1', lbl:`Colaboradores — ${mesRefLabel}`,  val: totalPessoas,    sub: '',                                  varV: totalPessoas-totalPessoasAnt, ant: totalPessoasAnt, inv:false },
+        { id:'kpi-v2', lbl:`Banco Positivo — ${mesRefLabel}`, val: fmtHM(totalPos), sub: `Custo: ${fmtBRL(totalCustoPos)}`,  varV: totalPos-totalPosAnt,         ant: totalPosAnt,     inv:false },
+        { id:'kpi-v3', lbl:`Banco Negativo — ${mesRefLabel}`, val: fmtHM(totalNeg), sub: `Desconto: ${fmtBRL(totalCustoNeg)}`, varV: totalNeg-totalNegAnt,       ant: totalNegAnt,     inv:true  },
+        { id:'kpi-v4', lbl:'', val:'', sub:'', varV:null, ant:null, inv:false },
+        { id:'kpi-v5', lbl:'', val:'', sub:'', varV:null, ant:null, inv:false },
+        { id:'kpi-v6', lbl:'', val:'', sub:'', varV:null, ant:null, inv:false },
+      ];
+      let visClimaCount = 0;
+      document.querySelectorAll('.kpi-card').forEach(c => {
+        if (c.id === 'card-afastados-agora') { c.style.display='none'; return; }
+        c.style.display = visClimaCount < 3 ? '' : 'none'; visClimaCount++;
+      });
+      const kpiContainer = document.querySelector('.kpi-container');
+      if (kpiContainer) { kpiContainer.style.gridTemplateColumns='repeat(3,1fr)'; kpiContainer.removeAttribute('data-layout'); }
       kpiClima.forEach(k => {
-        const valEl=document.getElementById(k.id), lblEl=document.getElementById(k.id.replace('kpi-v','label-kpi')), varEl=document.getElementById(k.id.replace('kpi-v','var-kpi'));
-        if(valEl) valEl.textContent=k.val;
-        if(lblEl) lblEl.textContent=k.lbl;
+        const valEl=document.getElementById(k.id), lblEl=document.getElementById(k.id.replace('kpi-v','label-kpi')), varEl=document.getElementById(k.id.replace('kpi-v','var-kpi')), subEl=document.getElementById(k.id.replace('kpi-v','sub-kpi'));
+        if(valEl) valEl.textContent=k.val; if(lblEl) lblEl.textContent=k.lbl;
+        if(subEl) subEl.textContent=k.sub||'';
         if(varEl){
-          if(k.varV!==null && k.ant!==null && k.ant!==0){
-            const pct=(k.varV/k.ant*100).toFixed(1), dir=k.varV>0?1:k.varV<0?-1:0, cor=k.inv?-dir:dir;
+          if(k.varV!==null&&k.ant!==null&&k.ant!==0){
+            const pct=(k.varV/k.ant*100).toFixed(1),dir=k.varV>0?1:k.varV<0?-1:0,cor=k.inv?-dir:dir;
             varEl.innerHTML=`${dir>0?svgUp:dir<0?svgDn:''} ${k.varV>0?'+':''}${pct}% vs mês ant.`;
             varEl.className=`kpi-variation ${cor>0?'delta-up':cor<0?'delta-down':'delta-neutral'}`;
           } else { varEl.innerHTML=''; varEl.className='kpi-variation delta-neutral'; }
         }
       });
 
-      // ── CARDS DE ÁREA (horizontal scroll, todas as áreas ordenadas por criticidade) ──
+      // ── CARDS DE ÁREA (clicáveis) ──
       const areaCardsEl = document.getElementById('climaAreaCards');
       if (areaCardsEl) {
-        const CRIT_ORDER = {'Alto':0,'Médio':1,'Medio':1,'Baixo':2,'':3};
-        const areasSorted = todasAreas
-          .filter(a => CD.some(r=>r.area===a))
-          .sort((a,b)=>{
-            const ca=CRIT_ORDER[CD.find(r=>r.area===a)?.criticidade||'']??3;
-            const cb=CRIT_ORDER[CD.find(r=>r.area===b)?.criticidade||'']??3;
-            return ca-cb || a.localeCompare(b,'pt-BR');
-          });
+        const areaMap = {}, areaMapAnt = {};
+        CD.forEach(r => {
+          if (!areaMap[r.area]) areaMap[r.area] = { positivo:0, negativo:0, total:0, saldoNeg:0, pessoas:[] };
+          areaMap[r.area].positivo  += r.positivo  || 0;
+          areaMap[r.area].negativo  += r.negativo  || 0;
+          areaMap[r.area].total     += r.total     || 0;
+          areaMap[r.area].saldoNeg  += r.saldoNeg  || 0;
+          areaMap[r.area].pessoas.push(r);
+        });
+        CDAnt.forEach(r => {
+          if (!areaMapAnt[r.area]) areaMapAnt[r.area] = { positivo:0, negativo:0, total:0, saldoNeg:0 };
+          areaMapAnt[r.area].positivo  += r.positivo  || 0;
+          areaMapAnt[r.area].negativo  += r.negativo  || 0;
+          areaMapAnt[r.area].total     += r.total     || 0;
+          areaMapAnt[r.area].saldoNeg  += r.saldoNeg  || 0;
+        });
 
-        areaCardsEl.innerHTML = areasSorted.map(area => {
-          const cur = CD.find(r=>r.area===area)||{};
-          const ant = CDAnt.find(r=>r.area===area)||{};
-          const crit   = cur.criticidade || '';
-          const cor    = CRIT_COLOR[crit]||'#94a3b8';
-          const horas  = cur.bancohoras !== null && cur.bancohoras !== undefined ? cur.bancohoras : null;
-          const hAnt   = ant.bancohoras !== null && ant.bancohoras !== undefined ? ant.bancohoras : null;
-          const pessoas= cur.pessoas  || null;
-          const hpp    = cur.horasPorPessoa !== null && cur.horasPorPessoa !== undefined ? cur.horasPorPessoa : null;
-          const hppA   = ant.horasPorPessoa !== null && ant.horasPorPessoa !== undefined ? ant.horasPorPessoa : null;
-
-          const varBadge = (v, a, inv=false) => {
-            if(v===null||a===null||a===0) return '';
-            const diff=v-a, pct=(diff/a*100).toFixed(1), dir=diff>0?1:diff<0?-1:0, cor2=inv?-dir:dir;
-            const arrow=dir>0?'▲':dir<0?'▼':'';
-            const cls=cor2>0?'clima-var-up':cor2<0?'clima-var-down':'clima-var-neu';
-            return `<span class="${cls}">${arrow} ${diff>0?'+':''}${pct}%</span>`;
-          };
-
-          const critLabel = crit ? `<span class="clima-card-crit" style="background:${cor}22;color:${cor};border-color:${cor}44">${crit}</span>` : '';
-
+        const fmtBRLArea = v => Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0});
+        window._climaAreaMap = areaMap;
+        const areasSorted = Object.keys(areaMap).sort((a,b) => areaMap[b].negativo - areaMap[a].negativo);
+        areaCardsEl.innerHTML = areasSorted.length ? areasSorted.map(area => {
+          const d   = areaMap[area];
+          const saldoLiq = d.total - d.saldoNeg;
+          const cor      = d.negativo > d.positivo ? '#e81123' : d.positivo > d.negativo ? '#107c10' : '#ff8c00';
+          const corSaldo = saldoLiq >= 0 ? '#107c10' : '#e81123';
           return `<div class="clima-area-card" style="border-top:3px solid ${cor}">
             <div class="clima-card-top">
               <div class="clima-card-nome">${area}</div>
-              ${critLabel}
+              <span class="clima-card-crit clima-colab-btn" data-area="${area.replace(/"/g,'&quot;')}" style="background:${cor}22;color:${cor};border-color:${cor}44;cursor:pointer">${d.pessoas.length} colab. 👁</span>
             </div>
             <div class="clima-card-metrics">
-              <div class="clima-card-metric">
-                <div class="clima-metric-label">Pessoas</div>
-                <div class="clima-metric-value">${pessoas!==null?pessoas:'—'}</div>
-              </div>
-              <div class="clima-card-metric">
-                <div class="clima-metric-label">Banco de Horas</div>
-                <div class="clima-metric-value">${fmtHoras(horas)} ${varBadge(horas,hAnt,true)}</div>
-              </div>
-              <div class="clima-card-metric">
-                <div class="clima-metric-label">Horas/Pessoa</div>
-                <div class="clima-metric-value">${fmtHoras(hpp)} ${varBadge(hpp,hppA,true)}</div>
-              </div>
+              <div class="clima-card-metric"><div class="clima-metric-label">Banco Positivo</div><div class="clima-metric-val" style="color:#107c10">${fmtHM(d.positivo)}</div></div>
+              <div class="clima-card-metric"><div class="clima-metric-label">Banco Negativo</div><div class="clima-metric-val" style="color:#e81123">${fmtHM(d.negativo)}</div></div>
+              <div class="clima-card-metric"><div class="clima-metric-label">Saldo Líquido</div><div class="clima-metric-val" style="color:${corSaldo};font-weight:700">${fmtBRLArea(saldoLiq)}</div></div>
             </div>
           </div>`;
-        }).join('');
-      }
+        }).join('') : '<div style="color:var(--text-secondary);padding:16px">Sem dados para este mês.</div>';
 
-      // ── FILTRO DE ÁREA (multi-select via checkboxes) ──
-      const climaAreasSel = () => {
-        const checks = document.querySelectorAll('.clima-area-check:checked');
-        return checks.length ? [...checks].map(c=>c.value) : null; // null = todas
-      };
-      // Popular dropdown de filtro se ainda não tem as opções
-      const filterList = document.getElementById('climaFilterList');
-      if (filterList && filterList.children.length === 0) {
-        todasAreas.sort().forEach(a => {
-          const li = document.createElement('label');
-          li.className = 'clima-filter-opt';
-          li.innerHTML = `<input type="checkbox" class="clima-area-check" value="${a}" onchange="renderCharts('clima')"> ${a}`;
-          filterList.appendChild(li);
+        areaCardsEl.addEventListener('click', e => {
+          const btn = e.target.closest('.clima-colab-btn');
+          if (btn) openClimaAreaModal(btn.dataset.area);
         });
       }
 
-      // ── GRÁFICO: EVOLUÇÃO BANCO DE HORAS (áreas filtradas) ──
-      const FPAL = ['#0078d4','#107c10','#b4a0ff','#ff8c00','#00b7c3','#e81123','#ffd700','#a0c4ff','#f87171','#4ade80','#60a5fa','#fb923c'];
-      const hex2rgba = (hex, al) => { const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16); return `rgba(${r},${g},${b},${al})`; };
+      const fmtHMChart = v => {
+        if (!v && v !== 0) return '—';
+        const totalMin = Math.round(v * 60);
+        const neg = totalMin < 0, abs = Math.abs(totalMin);
+        return (neg?'-':'') + Math.floor(abs/60) + 'h' + String(abs%60).padStart(2,'0');
+      };
 
-      const areasSel = climaAreasSel();
-      const evolAreas = (areasSel || todasAreas.filter(a=>climaData.some(r=>r.area===a && r.bancohoras!==null)));
-      const evolDs = evolAreas.map((area, fi) => ({
-        label: area,
-        data: MESES_NUM.map(m => climaData.find(r=>r.area===area&&r.mes===m)?.bancohoras??null),
-        borderColor: FPAL[fi%FPAL.length],
-        backgroundColor: hex2rgba(FPAL[fi%FPAL.length], 0.08),
-        borderWidth: 2.5, tension: 0.3, fill: false, spanGaps: true,
-        pointRadius: 4, pointHoverRadius: 6,
-        pointBackgroundColor: FPAL[fi%FPAL.length],
-        pointBorderColor: isDark()?'#1e2535':'#fff', pointBorderWidth: 2,
-      }));
-
+      // ── GRÁFICO BARRAS: Positivo vs Negativo por Área ──
       if (charts['chartClimaEvol']) charts['chartClimaEvol'].destroy();
       const ctxEvol = document.getElementById('chartClimaEvol');
-      if (ctxEvol) {
+      if (ctxEvol && CD.length) {
+        const areaMap2 = {};
+        CD.forEach(r => {
+          if (!areaMap2[r.area]) areaMap2[r.area] = { positivo:0, negativo:0 };
+          areaMap2[r.area].positivo += r.positivo; areaMap2[r.area].negativo += r.negativo;
+        });
+        const areasOrd = Object.keys(areaMap2).sort((a,b) => areaMap2[b].negativo - areaMap2[a].negativo);
         charts['chartClimaEvol'] = new Chart(ctxEvol, {
-          type: 'line',
-          data: { labels: MESES_LABEL, datasets: evolDs },
-          options: {
-            responsive: true, maintainAspectRatio: true,
-            plugins: {
-              legend: { display: true, position: 'bottom', labels: { color:t.tick, usePointStyle:true, boxWidth:8, padding:12, font:{size:10} } },
-              tooltip: { backgroundColor:t.bg, titleColor:t.text, bodyColor:t.tick, borderColor:isDark()?'rgba(255,255,255,.1)':'rgba(0,0,0,.08)', borderWidth:1, padding:10,
-                callbacks:{ label: ctx=>`  ${ctx.dataset.label}: ${fmtHoras(ctx.parsed.y)}` }
-              }
-            },
-            scales: {
-              x: { ticks:{color:t.tick,font:{size:11}}, grid:{color:t.grid}, border:{display:false} },
-              y: { beginAtZero:false, ticks:{color:t.tick,font:{size:11}}, grid:{color:t.grid}, border:{display:false} }
-            }
+          type: 'bar',
+          data: { labels: areasOrd, datasets: [
+            { label: 'Positivo', data: areasOrd.map(a => areaMap2[a].positivo), backgroundColor: 'rgba(16,124,16,.8)', borderRadius:4 },
+            { label: 'Negativo', data: areasOrd.map(a => areaMap2[a].negativo), backgroundColor: 'rgba(232,17,35,.8)', borderRadius:4 },
+          ]},
+          options: { responsive:true, maintainAspectRatio:true,
+            plugins:{ legend:{display:true,position:'top',labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:11}}}, tooltip:{backgroundColor:t.bg,titleColor:t.text,bodyColor:t.tick,borderWidth:1,
+              callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${fmtHMChart(ctx.parsed.y)}` }
+            } },
+            scales:{ x:{ticks:{color:t.tick,font:{size:10},maxRotation:35},grid:{color:t.grid},border:{display:false}}, y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11}},grid:{color:t.grid},border:{display:false}} }
           }
         });
       }
 
-      // Atualiza label do filtro
-      const filterBtn = document.getElementById('climaFilterBtn');
-      if (filterBtn) filterBtn.textContent = areasSel ? `${areasSel.length} área${areasSel.length>1?'s':''} selecionada${areasSel.length>1?'s':''}` : 'Selecionar áreas';
+      // ── GRÁFICO LINHAS: Total de horas por mês por área ──
+      const MESES_NUM = ['01','02','03','04','05','06','07','08','09','10','11','12'];
+      const todasAreasClima = [...new Set(climaData.map(r=>r.area).filter(Boolean))].sort();
+
+      // Popula o dropdown de checkboxes (só na primeira vez)
+      const linhaList = document.getElementById('climaLinhaList');
+      if (linhaList && linhaList.children.length === 0) {
+        todasAreasClima.forEach(a => {
+          const lbl = document.createElement('label');
+          lbl.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 12px;cursor:pointer;font-size:11.5px;color:var(--text-primary)';
+          lbl.innerHTML = `<input type="checkbox" class="clima-linha-check" value="${a.replace(/"/g,'&quot;')}" checked onchange="renderCharts('clima')"> ${a}`;
+          linhaList.appendChild(lbl);
+        });
+      }
+
+      // Áreas selecionadas
+      const checked = document.querySelectorAll('.clima-linha-check:checked');
+      const areasLinha = checked.length ? [...checked].map(c => c.value) : todasAreasClima;
+
+      // Atualiza label do botão
+      const btnLabel = document.getElementById('climaLinhaBtnLabel');
+      if (btnLabel) {
+        btnLabel.textContent = checked.length === todasAreasClima.length || checked.length === 0
+          ? 'Todas as áreas'
+          : `${checked.length} área${checked.length > 1 ? 's' : ''}`;
+      }
+
+      // Fecha dropdown ao clicar fora
+      if (!window._climaLinhaOutside) {
+        window._climaLinhaOutside = true;
+        document.addEventListener('click', e => {
+          const dd = document.getElementById('climaLinhaDropdown');
+          const btn = document.getElementById('climaLinhaBtn');
+          if (dd && !dd.contains(e.target) && !btn?.contains(e.target)) dd.classList.remove('open');
+        });
+      }
+
+      const FPAL = ['#0078d4','#107c10','#b4a0ff','#ff8c00','#00b7c3','#e81123','#ffd700','#4ade80','#f87171','#60a5fa','#fb923c','#a78bfa'];
+      const hex2rgba = (hex, al) => { const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16); return `rgba(${r},${g},${b},${al})`; };
+
+      if (charts['chartClimaLinha']) charts['chartClimaLinha'].destroy();
+      const ctxLinha = document.getElementById('chartClimaLinha');
+      if (ctxLinha) {
+        const datasets = areasLinha.map((area, fi) => {
+          const cor = FPAL[fi % FPAL.length];
+          const dataPos = MESES_NUM.map(m => climaData.filter(r => r.area===area && r.mes===m).reduce((s,r)=>s+(r.positivo||0),0));
+          const dataNeg = MESES_NUM.map(m => climaData.filter(r => r.area===area && r.mes===m).reduce((s,r)=>s+(r.negativo||0),0));
+          return [
+            { label:`${area} — Positivo`, data:dataPos, borderColor:cor, backgroundColor:hex2rgba(cor,0.1), borderWidth:2, tension:0.3, fill:false, spanGaps:true, pointRadius:3, pointBackgroundColor:cor },
+            { label:`${area} — Negativo`, data:dataNeg, borderColor:cor, backgroundColor:'transparent', borderWidth:2, borderDash:[5,4], tension:0.3, fill:false, spanGaps:true, pointRadius:3, pointBackgroundColor:cor },
+          ];
+        }).flat();
+
+        charts['chartClimaLinha'] = new Chart(ctxLinha, {
+          type: 'line',
+          data: { labels: MESES_LABEL, datasets },
+          options: {
+            responsive:true, maintainAspectRatio:true,
+            plugins:{
+              legend:{ display: checked.length > 0 && checked.length < todasAreasClima.length, position:'bottom', labels:{ color:t.tick, usePointStyle:true, boxWidth:8, font:{size:10}, padding:10 } },
+              tooltip:{ backgroundColor:t.bg, titleColor:t.text, bodyColor:t.tick, borderWidth:1, borderColor:isDark()?'rgba(255,255,255,.1)':'rgba(0,0,0,.08)',
+                callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${fmtHMChart(ctx.parsed.y)}` }
+              }
+            },
+            scales:{
+              x:{ ticks:{color:t.tick,font:{size:11}}, grid:{color:t.grid}, border:{display:false} },
+              y:{ beginAtZero:true, ticks:{color:t.tick,font:{size:11}, callback: v => fmtHMChart(v)}, grid:{color:t.grid}, border:{display:false} }
+            }
+          }
+        });
+      }
 
       break;
     }
@@ -3695,9 +4473,13 @@ case 'atestados': {
         { id:'kpi-v5', lbl:'', val:'' },
         { id:'kpi-v6', lbl:'', val:'' },
       ];
-      document.querySelectorAll('.kpi-card').forEach((c,i)=>{ c.style.display=i<4?'':'none'; });
+      let visMovCount = 0;
+      document.querySelectorAll('.kpi-card').forEach(c=>{
+        if (c.id === 'card-afastados-agora') { c.style.display='none'; return; }
+        c.style.display = visMovCount < 4 ? '' : 'none'; visMovCount++;
+      });
       const kpiCont=document.querySelector('.kpi-container');
-      if(kpiCont) kpiCont.style.gridTemplateColumns='repeat(4,1fr)';
+      if(kpiCont){ kpiCont.style.gridTemplateColumns='repeat(4,1fr)'; kpiCont.removeAttribute('data-layout'); }
       kpis.forEach(k=>{
         const v=document.getElementById(k.id), l=document.getElementById(k.id.replace('kpi-v','label-kpi'));
         if(v) v.textContent=k.val; if(l) l.textContent=k.lbl;
@@ -3741,15 +4523,14 @@ case 'atestados': {
       const tabelaEl = document.getElementById('movimTabela');
       if (tabelaEl) {
         const sorted = [...MD].sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+        const MESES_LABEL_MOV = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
         tabelaEl.innerHTML = sorted.length ? sorted.map(r=>`
           <tr>
             <td>${r.nome}</td>
-            <td>${r.areaAtual||'—'}</td>
-            <td>${r.areaNova||'—'}</td>
             <td><span class="movim-motivo-badge movim-${(r.motivoGeral||'').toLowerCase().replace(/[^a-z]/g,'-')}">${r.motivoGeral||'—'}</span></td>
-            <td>${r.gestorAtual||'—'}</td>
-            <td>${r.gestorNovo||'—'}</td>
-          </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text-secondary)">Sem movimentações neste mês</td></tr>';
+            <td>${r.pctAumento ? r.pctAumento + '%' : '—'}</td>
+            <td>${r.mes ? (MESES_LABEL_MOV[parseInt(r.mes)-1] || r.mes) : '—'}</td>
+          </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--text-secondary)">Sem movimentações neste período</td></tr>';
       }
 
       break;
@@ -3854,9 +4635,13 @@ case 'atestados': {
         {id:'kpi-v5',lbl:'',val:'',varV:null,ant:null,inv:false},
         {id:'kpi-v6',lbl:'',val:'',varV:null,ant:null,inv:false},
       ];
-      document.querySelectorAll('.kpi-card').forEach((c,i)=>{c.style.display=i<4?'':'none';});
+      let visOffCount = 0;
+      document.querySelectorAll('.kpi-card').forEach(c=>{
+        if (c.id === 'card-afastados-agora') { c.style.display='none'; return; }
+        c.style.display = visOffCount < 4 ? '' : 'none'; visOffCount++;
+      });
       const kpiCont=document.querySelector('.kpi-container');
-      if(kpiCont) kpiCont.style.gridTemplateColumns='repeat(4,1fr)';
+      if(kpiCont){ kpiCont.style.gridTemplateColumns='repeat(4,1fr)'; kpiCont.removeAttribute('data-layout'); }
       kpis.forEach(k=>{
         const v=document.getElementById(k.id),l=document.getElementById(k.id.replace('kpi-v','label-kpi')),vr=document.getElementById(k.id.replace('kpi-v','var-kpi'));
         if(v) v.textContent=k.val; if(l) l.textContent=k.lbl;
@@ -4073,6 +4858,364 @@ function demoData() { return []; }
 /* ═══════════════════════════════════════════
    EXPORTAR
 ═══════════════════════════════════════════ */
+/* ═══════════════════════════════════════════
+   EXPORTAR PDF
+═══════════════════════════════════════════ */
+async function exportarPDF() {
+  if (!hasRealData && !rsData.length && !peData.length) {
+    toast('Importe uma planilha antes de exportar.', 'info');
+    return;
+  }
+
+  const btn = document.getElementById('exportPdfBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Gerando PDF…'; }
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pw = pdf.internal.pageSize.getWidth();
+  const ph = pdf.internal.pageSize.getHeight();
+  const margin = 12;
+  const hoje = new Date().toLocaleDateString('pt-BR');
+  const mesSel = document.getElementById('month-select')?.value || '';
+  const MESES_L = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const mesLabel = mesSel ? MESES_L[parseInt(mesSel)-1] : 'Acumulado';
+
+  // ── CAPA ──
+  pdf.setFillColor(15, 23, 42);
+  pdf.rect(0, 0, pw, ph, 'F');
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(28); pdf.setTextColor(255,255,255);
+  pdf.text('Yandeh', pw/2, 80, { align:'center' });
+  pdf.setFontSize(14); pdf.setTextColor(180,160,255);
+  pdf.text('Dashboard Pessoas & Cultura', pw/2, 94, { align:'center' });
+  pdf.setFontSize(11); pdf.setTextColor(148,163,184);
+  pdf.text(`Período: ${mesLabel}`, pw/2, 108, { align:'center' });
+  pdf.text(`Gerado em ${hoje}`, pw/2, 116, { align:'center' });
+
+  // Gradiente visual (linha decorativa)
+  pdf.setDrawColor(180,0,255); pdf.setLineWidth(0.8);
+  pdf.line(margin, 130, pw-margin, 130);
+
+  // ── ABAS A CAPTURAR ──
+  const abas = [
+    { cat: 'dashboard',       label: 'Visão Geral' },
+    { cat: 'atestados',       label: 'Atestados' },
+    { cat: 'offboarding',     label: 'Offboarding' },
+    { cat: 'movimentacoes',   label: 'Movimentações Internas' },
+    { cat: 'clima',           label: 'Clima das Áreas' },
+    { cat: 'recrutamento',    label: 'Recrutamento & Seleção' },
+    { cat: 'periodoExperiencia', label: 'Período de Experiência' },
+  ];
+
+  const savedCat = currentCategory;
+
+  for (const aba of abas) {
+    // Pula abas sem dados
+    if (aba.cat === 'recrutamento' && !rsData.length) continue;
+    if (aba.cat === 'periodoExperiencia' && !peData.length) continue;
+    if (!hasRealData && !['recrutamento','periodoExperiencia'].includes(aba.cat)) continue;
+
+    // Navega para a aba e aguarda render
+    switchCategory(aba.cat);
+    await new Promise(r => setTimeout(r, 800));
+
+    const section = document.getElementById(aba.cat);
+    if (!section) continue;
+
+    try {
+      const canvas = await html2canvas(section, {
+        scale: 1.5,
+        useCORS: true,
+        backgroundColor: isDark() ? '#0f172a' : '#f8fafc',
+        logging: false,
+        windowWidth: 1280,
+      });
+
+      pdf.addPage();
+      // Cabeçalho da seção
+      pdf.setFillColor(isDark()?15:248, isDark()?23:250, isDark()?42:252);
+      pdf.rect(0, 0, pw, 14, 'F');
+      pdf.setFont('helvetica','bold');
+      pdf.setFontSize(10);
+      pdf.setTextColor(isDark()?200:30, isDark()?200:30, isDark()?200:30);
+      pdf.text(aba.label, margin, 9);
+      pdf.setFont('helvetica','normal');
+      pdf.setFontSize(8); pdf.setTextColor(148,163,184);
+      pdf.text(hoje, pw - margin, 9, { align:'right' });
+
+      // Imagem da seção
+      const imgData = canvas.toDataURL('image/jpeg', 0.85);
+      const imgW = pw - margin*2;
+      const imgH = (canvas.height * imgW) / canvas.width;
+      const maxH = ph - 20;
+
+      if (imgH <= maxH) {
+        pdf.addImage(imgData, 'JPEG', margin, 16, imgW, imgH);
+      } else {
+        // Imagem maior que página — divide em páginas
+        const ratio = canvas.width / imgW;
+        const pageHeightPx = maxH * ratio;
+        let yOffset = 0;
+        let first = true;
+        while (yOffset < canvas.height) {
+          if (!first) { pdf.addPage(); }
+          first = false;
+          const sliceH = Math.min(pageHeightPx, canvas.height - yOffset);
+          const sliceCanvas = document.createElement('canvas');
+          sliceCanvas.width = canvas.width;
+          sliceCanvas.height = sliceH;
+          sliceCanvas.getContext('2d').drawImage(canvas, 0, -yOffset);
+          const sliceData = sliceCanvas.toDataURL('image/jpeg', 0.85);
+          const sliceImgH = (sliceH * imgW) / canvas.width;
+          pdf.addImage(sliceData, 'JPEG', margin, first?16:8, imgW, sliceImgH);
+          yOffset += pageHeightPx;
+        }
+      }
+    } catch(e) {
+      console.error('Erro ao capturar aba', aba.cat, e);
+    }
+  }
+
+  // Volta para a aba original
+  switchCategory(savedCat);
+
+  pdf.save(`Yandeh_Dashboard_${mesLabel.replace(' ','_')}_${hoje.replace(/\//g,'-')}.pdf`);
+  if (btn) { btn.disabled = false; btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> PDF Completo'; }
+  toast('PDF gerado com sucesso!', 'success');
+}
+
+async function exportarPDFReport() {
+  if (!reportData.length) { toast('Importe o Report Semanal antes de exportar.', 'info'); return; }
+
+  const btn = document.getElementById('reportPdfBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Gerando…'; }
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pw = pdf.internal.pageSize.getWidth();
+  const ph = pdf.internal.pageSize.getHeight();
+  const margin = 12;
+  const hoje = new Date().toLocaleDateString('pt-BR');
+  const mesSel = document.getElementById('month-select')?.value || '';
+  const MESES_L = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const mesLabel = mesSel ? MESES_L[parseInt(mesSel)-1] : 'Acumulado';
+
+  // Garante que está na aba report e renderizado
+  switchCategory('reportSemanal');
+  await new Promise(r => setTimeout(r, 800));
+
+  const section = document.getElementById('reportSemanal');
+  try {
+    const canvas = await html2canvas(section, {
+      scale: 1.5, useCORS: true,
+      backgroundColor: isDark() ? '#0f172a' : '#f8fafc',
+      logging: false, windowWidth: 1280,
+    });
+
+    // Capa
+    pdf.setFillColor(15,23,42);
+    pdf.rect(0,0,pw,ph,'F');
+    pdf.setFont('helvetica','bold');
+    pdf.setFontSize(22); pdf.setTextColor(255,255,255);
+    pdf.text('Yandeh', pw/2, 80, {align:'center'});
+    pdf.setFontSize(13); pdf.setTextColor(180,160,255);
+    pdf.text('Report Semanal — Recrutamento & Seleção', pw/2, 92, {align:'center'});
+    pdf.setFontSize(10); pdf.setTextColor(148,163,184);
+    pdf.text(`Período: ${mesLabel}  ·  Gerado em ${hoje}`, pw/2, 103, {align:'center'});
+    pdf.setDrawColor(180,0,255); pdf.setLineWidth(0.8);
+    pdf.line(margin, 112, pw-margin, 112);
+
+    // Conteúdo
+    pdf.addPage();
+    pdf.setFillColor(isDark()?15:248,isDark()?23:250,isDark()?42:252);
+    pdf.rect(0,0,pw,14,'F');
+    pdf.setFont('helvetica','bold'); pdf.setFontSize(10);
+    pdf.setTextColor(isDark()?200:30,isDark()?200:30,isDark()?200:30);
+    pdf.text('Report Semanal — Recrutamento & Seleção', margin, 9);
+    pdf.setFont('helvetica','normal'); pdf.setFontSize(8); pdf.setTextColor(148,163,184);
+    pdf.text(hoje, pw-margin, 9, {align:'right'});
+
+    const imgData = canvas.toDataURL('image/jpeg', 0.88);
+    const imgW = pw - margin*2;
+    const imgH = (canvas.height * imgW) / canvas.width;
+    const maxH = ph - 20;
+
+    if (imgH <= maxH) {
+      pdf.addImage(imgData, 'JPEG', margin, 16, imgW, imgH);
+    } else {
+      const ratio = canvas.width / imgW;
+      const pageHeightPx = maxH * ratio;
+      let yOffset = 0, first = true;
+      while (yOffset < canvas.height) {
+        if (!first) pdf.addPage();
+        first = false;
+        const sliceH = Math.min(pageHeightPx, canvas.height - yOffset);
+        const sc = document.createElement('canvas');
+        sc.width = canvas.width; sc.height = sliceH;
+        sc.getContext('2d').drawImage(canvas, 0, -yOffset);
+        const sliceImgH = (sliceH * imgW) / canvas.width;
+        pdf.addImage(sc.toDataURL('image/jpeg',0.88), 'JPEG', margin, first?16:8, imgW, sliceImgH);
+        yOffset += pageHeightPx;
+      }
+    }
+  } catch(e) {
+    console.error('Erro ao capturar report:', e);
+    toast('Erro ao gerar PDF.', 'error');
+  }
+
+  pdf.save(`Yandeh_ReportSemanal_${mesLabel.replace(' ','_')}_${hoje.replace(/\//g,'-')}.pdf`);
+  if (btn) { btn.disabled = false; btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> PDF Report'; }
+  toast('PDF do Report gerado!', 'success');
+}
+
+/* ═══════════════════════════════════════════
+   EXPORTAR HTML AUTOCONTIDO
+═══════════════════════════════════════════ */
+async function exportarHTML() {
+  const btn = document.getElementById('exportHtmlBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Gerando…'; }
+
+  try {
+    // ── 1. Captura CSS e JS já embutidos no DOM ──
+    const cssTexts    = [...document.querySelectorAll('style')].map(s => s.textContent);
+    const scriptTexts = [];
+
+    // ── 2. Serializa todos os dados em JSON ──
+    const snapshot = {
+      allData,
+      headcountData:    typeof headcountData    !== 'undefined' ? headcountData    : [],
+      atestadosData:    typeof atestadosData    !== 'undefined' ? atestadosData    : [],
+      offboardingData:  typeof offboardingData  !== 'undefined' ? offboardingData  : [],
+      movimentData:     typeof movimentData     !== 'undefined' ? movimentData     : [],
+      climaData,
+      cotasPcdData:     typeof cotasPcdData     !== 'undefined' ? cotasPcdData     : [],
+      cotasJaData:      typeof cotasJaData      !== 'undefined' ? cotasJaData      : [],
+      ativosData:       typeof ativosData       !== 'undefined' ? ativosData       : [],
+      peData,
+      rsData,
+      reportData,
+      hasRealData,
+      isDarkMode: document.body.classList.contains('dark-mode'),
+      mesSel: document.getElementById('month-select')?.value || '',
+      areaSel: document.getElementById('area-select')?.value || '',
+      exportedAt: new Date().toISOString(),
+    };
+
+    // Serializa com tratamento de datas (Date objects → ISO string)
+    const jsonStr = JSON.stringify(snapshot, (key, val) => {
+      if (val instanceof Date) return { __type: 'Date', value: val.toISOString() };
+      return val;
+    });
+
+    // ── 3. Pega o HTML atual ──
+    const htmlEl = document.documentElement.cloneNode(true);
+
+    // Remove scripts externos (serão injetados inline)
+    htmlEl.querySelectorAll('script[src]').forEach(s => s.remove());
+    // Remove links CSS externos (serão injetados inline)
+    htmlEl.querySelectorAll('link[rel="stylesheet"]').forEach(l => l.remove());
+
+    // Injeta CSS inline
+    const styleEl = document.createElement('style');
+    styleEl.textContent = cssTexts.join('\n\n');
+    htmlEl.querySelector('head').prepend(styleEl);
+
+    // Injeta dados como JSON global
+    const dataScript = document.createElement('script');
+    dataScript.textContent = `window.__YANDEH_SNAPSHOT__ = JSON.parse(${JSON.stringify(jsonStr)}, (k,v) => {
+      if (v && v.__type === 'Date') return new Date(v.value);
+      return v;
+    });`;
+    htmlEl.querySelector('head').appendChild(dataScript);
+
+    // Scripts já estão embutidos via cloneNode(true)
+
+    // Injeta script de inicialização com os dados do snapshot
+    const initScript = document.createElement('script');
+    initScript.textContent = `
+(function() {
+  const snap = window.__YANDEH_SNAPSHOT__;
+  if (!snap) return;
+
+  // Restaura dados
+  if (snap.allData?.length)        { allData = snap.allData; hasRealData = true; }
+  if (snap.headcountData?.length)  headcountData  = snap.headcountData;
+  if (snap.atestadosData?.length)  atestadosData  = snap.atestadosData;
+  if (snap.offboardingData?.length)offboardingData= snap.offboardingData;
+  if (snap.movimentData?.length)   movimentData   = snap.movimentData;
+  if (snap.climaData?.length)      climaData      = snap.climaData;
+  if (snap.cotasPcdData?.length)   cotasPcdData   = snap.cotasPcdData;
+  if (snap.cotasJaData?.length)    cotasJaData    = snap.cotasJaData;
+  if (snap.ativosData?.length)     ativosData     = snap.ativosData;
+  if (snap.peData?.length)         peData         = snap.peData;
+  if (snap.rsData?.length)         rsData         = snap.rsData;
+  if (snap.reportData?.length)     reportData     = snap.reportData;
+
+  // Restaura tema
+  if (snap.isDarkMode) document.body.classList.add('dark-mode');
+
+  // Restaura filtros
+  const ms = document.getElementById('month-select');
+  if (ms && snap.mesSel) ms.value = snap.mesSel;
+  const as = document.getElementById('area-select');
+  if (as && snap.areaSel) as.value = snap.areaSel;
+
+  // Mostra seções com dados
+  if (snap.peData?.length) {
+    document.getElementById('emptyPeriodoExperiencia').style.display = 'none';
+    document.getElementById('chartsPeriodoExperiencia').style.display = 'block';
+    document.getElementById('peClearBtn').style.display = 'inline-flex';
+  }
+  if (snap.rsData?.length) {
+    document.getElementById('emptyRecrutamento').style.display = 'none';
+    document.getElementById('chartsRecrutamento').style.display = 'block';
+    document.getElementById('rsClearBtn').style.display = 'inline-flex';
+  }
+  if (snap.reportData?.length) {
+    document.getElementById('emptyReportSemanal').style.display = 'none';
+    document.getElementById('chartsReportSemanal').style.display = 'block';
+    document.getElementById('reportClearBtn').style.display = 'inline-flex';
+    document.getElementById('reportPdfBtn').style.display = 'inline-flex';
+  }
+  if (snap.climaData?.length) {
+    document.getElementById('emptyClima').style.display = 'none';
+    document.getElementById('chartsClima').style.display = 'block';
+  }
+
+  // Remove botões de importar (dados já estão embutidos)
+  document.querySelectorAll('.rs-import-corner label, #file-upload, .btn-import').forEach(el => el.style.display='none');
+  document.querySelectorAll('input[type="file"]').forEach(el => el.style.display='none');
+
+  // Renderiza tudo
+  setTimeout(() => {
+    switchCategory('dashboard');
+  }, 200);
+})();
+    `;
+    htmlEl.querySelector('body').appendChild(initScript);
+
+    // ── 4. Gera o download ──
+    const htmlStr = '<!DOCTYPE html>\n' + htmlEl.outerHTML;
+    const blob = new Blob([htmlStr], { type: 'text/html;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    const hoje = new Date().toLocaleDateString('pt-BR').replace(/\//g,'-');
+    const mes  = document.getElementById('month-select')?.value || '';
+    const MESES_L = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    a.download = `Yandeh_Dashboard_${mes ? MESES_L[parseInt(mes)-1] : 'Completo'}_${hoje}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    toast('HTML exportado com sucesso!', 'success');
+  } catch(e) {
+    console.error('Erro ao exportar HTML:', e);
+    toast('Erro ao gerar HTML: ' + e.message, 'error');
+  }
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg> Exportar HTML'; }
+}
+
 function exportData() {
   if (!allData.length) { toast('Importe uma planilha antes de exportar.','info'); return; }
   const data = getFiltered();
