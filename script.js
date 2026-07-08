@@ -1160,6 +1160,71 @@ function toggleOkr(idx) {
   if (card) card.classList.toggle('open');
 }
 
+/* ═══════════════════════════════════════════
+   FILTROS DE COLUNA NAS TABELAS
+═══════════════════════════════════════════ */
+function initTableFilters(tableId) {
+  const table = document.getElementById(tableId)?.closest('table') ||
+                document.querySelector(`table:has(#${tableId})`);
+  if (!table) return;
+  const thead = table.querySelector('thead');
+  if (!thead) return;
+
+  // Remove linha de filtros anterior se existir
+  const oldRow = thead.querySelector('.filter-row');
+  if (oldRow) oldRow.remove();
+
+  const headerRow = thead.querySelector('tr');
+  if (!headerRow) return;
+  const cols = headerRow.querySelectorAll('th');
+
+  const filterRow = document.createElement('tr');
+  filterRow.className = 'filter-row';
+
+  cols.forEach((th, colIdx) => {
+    const td = document.createElement('th');
+    td.style.cssText = 'padding:2px 4px;font-weight:normal';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = '🔍';
+    input.className = 'th-filter';
+    input.dataset.col = colIdx;
+    input.addEventListener('input', () => filterTableByColumns(table));
+    td.appendChild(input);
+    filterRow.appendChild(td);
+  });
+
+  thead.appendChild(filterRow);
+}
+
+function filterTableByColumns(table) {
+  const inputs = table.querySelectorAll('.filter-row .th-filter');
+  const filters = [...inputs].map(i => i.value.trim().toLowerCase());
+  const tbody = table.querySelector('tbody');
+  if (!tbody) return;
+
+  tbody.querySelectorAll('tr').forEach(row => {
+    const cells = row.querySelectorAll('td');
+    const show = filters.every((f, ci) => {
+      if (!f) return true;
+      const cell = cells[ci];
+      return cell && cell.textContent.toLowerCase().includes(f);
+    });
+    row.style.display = show ? '' : 'none';
+  });
+}
+
+function filterTableCol(tbodyId, colIdx, valor) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  const termo = valor.trim().toLowerCase();
+  tbody.querySelectorAll('tr').forEach(tr => {
+    const cell = tr.cells[colIdx];
+    const txt  = (cell?.textContent || '').toLowerCase();
+    tr.style.display = (!termo || txt.includes(termo)) ? '' : 'none';
+  });
+}
+
 function filtrarTabelaReport(q) {
   const tbody = document.getElementById('reportTabelaBody');
   if (!tbody) return;
@@ -1895,6 +1960,22 @@ function renderRS() {
     return !dtF || isNaN(dtF) || dtF.getTime() >= inicioMes;
   }).length;
 
+  // Vagas trabalhadas no mês anterior
+  let trabAnt = null;
+  if (mesAnt) {
+    const mesAntRef  = parseInt(mesAnt);
+    const inicioMesAnt = Date.UTC(anoRef, mesAntRef - 1, 1);
+    const fimMesAnt    = Date.UTC(anoRef, mesAntRef, 0, 23, 59, 59);
+    trabAnt = D.filter(r => {
+      if (!r.dataAbertura) return false;
+      const dtA = excelDateToDate(r.dataAbertura);
+      if (!dtA || isNaN(dtA) || dtA.getTime() > fimMesAnt) return false;
+      if (!r.dataFechamento) return true;
+      const dtF = excelDateToDate(r.dataFechamento);
+      return !dtF || isNaN(dtF) || dtF.getTime() >= inicioMesAnt;
+    }).length;
+  }
+
   // ── DECLÍNIOS ──
   // ── DECLÍNIOS: soma os valores numéricos da col AB, filtrado pelo mês da col AC ──
   const decRows = mesSel
@@ -1944,6 +2025,7 @@ function renderRS() {
   document.getElementById('rsVagasFechadas').textContent    = fecAtual;
   document.getElementById('rsVagasTrabalhadas').textContent = trabAtual;
   document.getElementById('rsVagasTrabalhadasSub').textContent = mesSel ? `Ref: ${MESES[parseInt(mesSel)-1]}` : 'Mês atual';
+  varBadge(trabAtual, trabAnt, 'rsVagasTrabalhadasVar', false);
   document.getElementById('rsDeclinios').textContent        = decAtual;
   document.getElementById('rsDecliniosPct').textContent     = `${decPct}% das vagas fechadas`;
   document.getElementById('rsSlaMedia').textContent         = slaMedia ? `${slaMedia} dias` : '—';
@@ -1953,14 +2035,74 @@ function renderRS() {
   window._rsVagasFechadas = mesSel ? D.filter(r => isFechada(r)           && getMesFechamento(r) === mesSel) : D.filter(isFechada);
 
   // ── METAS R&S ──
-  // Meta: no máximo 10% das vagas fechadas com SLA > 60 dias
-  const vagasFechadasMes = porMes(D, getMesFechamento, mesSel).filter(isFechada);
-  const vagasAcima60 = D.filter(r => r.sla !== '' && !isNaN(Number(r.sla)) && Number(r.sla) > 60);
-  const vagasAcima60Fil = mesSel
-    ? vagasAcima60.filter(r => getMesAbertura(r) === mesSel || getMesFechamento(r) === mesSel)
-    : vagasAcima60;
+  // Vagas com SLA (col Z) > 60 — que estavam ativas durante o mês selecionado
+  const excelToUTC = v => {
+    if (!v) return null;
+    let dt;
+    if (v instanceof Date) dt = v;
+    else if (typeof v === 'number') dt = new Date(Math.round((v - 25569) * 86400 * 1000));
+    else return null;
+    return new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate()));
+  };
+
+  // Dias úteis entre duas datas inclusive (seg-sex)
+  const diasUteis = (dtIni, dtFim) => {
+    if (!dtIni || !dtFim || dtFim < dtIni) return 0;
+    let count = 0;
+    const cur = new Date(dtIni);
+    while (cur <= dtFim) {
+      const dow = cur.getUTCDay();
+      if (dow !== 0 && dow !== 6) count++;
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    return count;
+  };
+
+  let vagasAcima60Fil;
+  if (mesSel) {
+    const ano     = new Date().getUTCFullYear();
+    const mesNum  = parseInt(mesSel);
+    const inicioMes = new Date(Date.UTC(ano, mesNum - 1, 1));
+    const fimMes    = new Date(Date.UTC(ano, mesNum, 0)); // último dia do mês
+
+    vagasAcima60Fil = D.filter(r => {
+      // Ignora se SLA for texto "Pipeline"
+      if (/pipeline/i.test(String(r.sla || ''))) return false;
+      if (/pipeline/i.test(String(r.status || ''))) return false;
+      const dtA = excelToUTC(r.dataAbertura);
+      if (!dtA) return false;
+      // Vaga deve ter aberto antes ou durante o mês
+      if (dtA > fimMes) return false;
+      // Vaga não pode ter fechado/cancelado antes do mês começar
+      const dtF = excelToUTC(r.dataFechamento);
+      if (dtF && dtF < inicioMes) return false;
+      // Referência: fim do mês ou data de fechamento (o que vier primeiro)
+      const dtRef = dtF && dtF < fimMes ? dtF : fimMes;
+      // Conta dias úteis da abertura até a referência
+      return diasUteis(dtA, dtRef) > 60;
+    });
+  } else {
+    // Sem mês: usa col Z (SLA atual)
+    vagasAcima60Fil = D.filter(r => {
+      if (/pipeline/i.test(String(r.status || ''))) return false;
+      const slaVal = Number(r.sla);
+      return r.sla !== '' && r.sla !== null && !isNaN(slaVal) && slaVal > 60;
+    });
+  }
+
+  const totalVagasMes = mesSel ? (() => {
+    const ano     = new Date().getUTCFullYear();
+    const mesNum  = parseInt(mesSel);
+    const inicioMes = new Date(Date.UTC(ano, mesNum - 1, 1));
+    const fimMes    = new Date(Date.UTC(ano, mesNum, 0));
+    return D.filter(r => {
+      const dtA = excelToUTC(r.dataAbertura);
+      const dtF = excelToUTC(r.dataFechamento);
+      return dtA && dtA <= fimMes && (!dtF || dtF >= inicioMes);
+    }).length;
+  })() : D.length;
   const acima60  = vagasAcima60Fil.length;
-  const pctSla60 = vagasFechadasMes.length ? Math.round(acima60 / vagasFechadasMes.length * 100) : 0;
+  const pctSla60 = totalVagasMes ? Math.round(acima60 / totalVagasMes * 100) : 0;
   window._vagasAcima60 = vagasAcima60Fil;
   const metaSla60El = document.getElementById('rsMetaSla');
   if (metaSla60El) {
@@ -3227,7 +3369,32 @@ case 'atestados': {
       const varOff = variacao(offAtual,         offAnterior,        true); // aumento demissão = ruim
 
       const hcLabel = mesSel ? `Total de Colaboradores` : 'Total de Colaboradores';
-      const hcSub   = !mesSel && headcountData.length ? `Média dos meses registrados` : '';
+
+      // Vagas de aumento de quadro do R&S (col L = motivo)
+      let aumentoQuadro = 0;
+      if (rsData.length) {
+        const rsAumento = rsData.filter(r => /aumento.*quadro|quadro.*aumento/i.test(String(r.motivo || '')));
+        if (mesSel) {
+          const anoRef2 = new Date().getUTCFullYear();
+          const mesNum2 = parseInt(mesSel);
+          const inicioMes2 = Date.UTC(anoRef2, mesNum2 - 1, 1);
+          const fimMes2    = Date.UTC(anoRef2, mesNum2, 0, 23, 59, 59);
+          aumentoQuadro = rsAumento.filter(r => {
+            if (!r.dataAbertura) return false;
+            const dtA = excelDateToDate(r.dataAbertura);
+            if (!dtA || isNaN(dtA) || dtA.getTime() > fimMes2) return false;
+            if (!r.dataFechamento) return true;
+            const dtF = excelDateToDate(r.dataFechamento);
+            return !dtF || isNaN(dtF) || dtF.getTime() >= inicioMes2;
+          }).length;
+        } else {
+          aumentoQuadro = rsAumento.length;
+        }
+      }
+
+      const hcSub = aumentoQuadro > 0
+        ? `+ ${aumentoQuadro} vaga${aumentoQuadro > 1 ? 's' : ''} de aumento de quadro`
+        : (!mesSel && headcountData.length ? `Média dos meses registrados` : '');
 
       return [
         {
@@ -4834,7 +5001,7 @@ case 'atestados': {
             <td>${r.area||'—'}</td>
             <td>${r.tipo||'—'}</td>
             <td>${r.motivo||'—'}</td>
-            <td>${r.tempoCasa!==null?r.tempoCasa+' anos':'—'}</td>
+            <td>${r.tempoCasa!==null ? (() => { const a=Math.floor(r.tempoCasa); const m=Math.round((r.tempoCasa-a)*12); return a===0?`${m}m`:m===0?`${a}a`:`${a}a ${m}m`; })() : '—'}</td>
             <td>${r.mes?MESES_LABEL[parseInt(r.mes)-1]:'—'}</td>
           </tr>`).join('')
           :'<tr><td colspan="6" style="text-align:center;color:var(--text-secondary)">Sem desligamentos neste período</td></tr>';
