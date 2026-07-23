@@ -10,7 +10,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
-<body>
+<body class="dark-mode">
 <div class="container">
 
     <!-- ═══════════════════════════════════
@@ -19,11 +19,16 @@
     <aside class="sidebar" id="sidebar">
 <div class="sidebar-header">
     <div class="logo-section">
-        <span class="logo-title">Pessoas &amp; Cultura</span>
+        <span class="logo-title" id="sidebarLogoTitle">Pessoas &amp; Cultura</span>
+    </div>
+    <div class="dash-switcher">
+        <button class="dash-switch-btn active" id="btnDashYandeh" onclick="switchDashboard('yandeh')">Yandeh</button>
+        <button class="dash-switch-btn" id="btnDashCD" onclick="switchDashboard('cd')">Girotrade CD</button>
+        <button class="dash-switch-btn" id="btnDashAnalises" onclick="switchDashboard('analises')">Análises</button>
     </div>
 </div>
 
-        <nav class="nav-menu">
+        <nav class="nav-menu" id="navYandeh">
             <div class="nav-item active" data-category="dashboard">
                 <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
                 <span class="nav-text">Visão Geral</span>
@@ -63,6 +68,46 @@
             <div class="nav-item" data-category="periodoExperiencia">
                 <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 16l2 2 4-4"/></svg>
                 <span class="nav-text">Período de Experiência</span>
+            </div>
+        </nav>
+
+        <!-- NAV GIROTRADE CD -->
+        <nav class="nav-menu" id="navCD" style="display:none">
+            <div class="nav-item active" data-cd-category="cd-dashboard">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                <span class="nav-text">Visão Geral</span>
+            </div>
+            <div class="nav-item" data-cd-category="cd-atestados">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414A1 1 0 0119 8.414V19a2 2 0 01-2 2z"/></svg>
+                <span class="nav-text">Atestados</span>
+            </div>
+            <div class="nav-item" data-cd-category="cd-cotas">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+                <span class="nav-text">Cotas</span>
+            </div>
+            <div class="nav-item" data-cd-category="cd-movimentacoes">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
+                <span class="nav-text">Movimentações</span>
+            </div>
+            <div class="nav-item" data-cd-category="cd-offboarding">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 16l4-4-4-4"/><path d="M3 12h18"/><path d="M3 6h6M3 18h6"/></svg>
+                <span class="nav-text">Offboarding</span>
+            </div>
+            <div class="nav-item" data-cd-category="cd-recrutamento">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <span class="nav-text">Recrutamento &amp; Seleção</span>
+            </div>
+            <div class="nav-item" data-cd-category="cd-absenteismo">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <span class="nav-text">Absenteísmo</span>
+            </div>
+        </nav>
+
+        <!-- NAV ANÁLISES -->
+        <nav class="nav-menu" id="navAnalises" style="display:none">
+            <div class="nav-item active" data-cd-category="analises-home">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                <span class="nav-text">Análises Totais</span>
             </div>
         </nav>
 
@@ -120,11 +165,16 @@
                 </div>
 
                 <!-- Importar -->
-                <label for="file-upload" class="btn-import">
+                <label for="file-upload" class="btn-import" id="btnImportYandeh">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                     Importar Excel
                 </label>
                 <input type="file" id="file-upload" accept=".xlsx,.xls,.csv" style="display:none">
+                <label for="cd-file-upload" class="btn-import" id="btnImportCD" style="display:none">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Importar CD
+                </label>
+                <input type="file" id="cd-file-upload" accept=".xlsx,.xls" style="display:none">
 
                 <!-- Dark mode -->
                 <div class="theme-toggle-wrapper">
@@ -137,11 +187,17 @@
                 </div>
             </div>
 
-            <!-- File badge -->
+            <!-- File badge Yandeh -->
             <div class="file-badge" id="fileBadge" style="display:none">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                 <span id="fileNameBadge"></span>
                 <button class="file-badge-close" id="clearFile">✕</button>
+            </div>
+            <!-- File badge CD -->
+            <div class="file-badge" id="fileBadgeCD" style="display:none">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <span id="fileNameBadgeCD"></span>
+                <button class="file-badge-close" id="clearFileCD">✕</button>
             </div>
         </header>
 
@@ -278,21 +334,43 @@
 
                     <!-- 3. Filtros (abaixo do headcount) -->
                     <div class="ativos-filter-bar" style="margin-bottom:14px">
+                        <!-- Área multi-select -->
                         <div class="rs-filter-group">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                             <label class="rs-filter-label">Área</label>
-                            <select id="ativosFilterArea" class="rs-filter-select" onchange="renderAtivos()">
-                                <option value="">Todas</option>
-                            </select>
+                            <div style="position:relative">
+                                <button id="ativosAreaBtn" onclick="document.getElementById('ativosAreaDropdown').classList.toggle('open')" class="rs-filter-select" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:140px">
+                                    <span id="ativosAreaLabel">Todas</span>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <div id="ativosAreaDropdown" class="clima-filter-dropdown" style="min-width:180px;max-height:200px;overflow-y:auto;z-index:999">
+                                    <div style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border)">
+                                        <button onclick="ativosMultiAll('ativosAreaCheck','ativosAreaLabel','Todas')" style="font-size:10px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:none;color:var(--text-primary);cursor:pointer">Todas</button>
+                                        <button onclick="ativosMultiClear('ativosAreaCheck','ativosAreaLabel','Todas')" style="font-size:10px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:none;color:var(--text-primary);cursor:pointer">Limpar</button>
+                                    </div>
+                                    <div id="ativosAreaList" style="padding:4px 0"></div>
+                                </div>
+                            </div>
                         </div>
+                        <!-- Gestor multi-select -->
                         <div class="rs-filter-group">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                             <label class="rs-filter-label">Gestor</label>
-                            <select id="ativosFilterGestor" class="rs-filter-select" onchange="renderAtivos()">
-                                <option value="">Todos</option>
-                            </select>
+                            <div style="position:relative">
+                                <button id="ativosGestorBtn" onclick="document.getElementById('ativosGestorDropdown').classList.toggle('open')" class="rs-filter-select" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:140px">
+                                    <span id="ativosGestorLabel">Todos</span>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <div id="ativosGestorDropdown" class="clima-filter-dropdown" style="min-width:180px;max-height:200px;overflow-y:auto;z-index:999">
+                                    <div style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border)">
+                                        <button onclick="ativosMultiAll('ativosGestorCheck','ativosGestorLabel','Todos')" style="font-size:10px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:none;color:var(--text-primary);cursor:pointer">Todos</button>
+                                        <button onclick="ativosMultiClear('ativosGestorCheck','ativosGestorLabel','Todos')" style="font-size:10px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:none;color:var(--text-primary);cursor:pointer">Limpar</button>
+                                    </div>
+                                    <div id="ativosGestorList" style="padding:4px 0"></div>
+                                </div>
+                            </div>
                         </div>
-                        <button class="rs-filter-clear" onclick="document.getElementById('ativosFilterArea').value='';document.getElementById('ativosFilterGestor').value='';renderAtivos()">
+                        <button class="rs-filter-clear" onclick="ativosMultiAll('ativosAreaCheck','ativosAreaLabel','Todas');ativosMultiAll('ativosGestorCheck','ativosGestorLabel','Todos')">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                             Limpar filtros
                         </button>
@@ -1138,10 +1216,23 @@
 
         </div><!-- /charts-section -->
 
-        <footer class="dashboard-footer">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            Indicadores atualizados com base nos dados importados. Importe uma planilha para alimentar os gráficos.
-        </footer>
+
+        <!-- ═══ SEÇÕES EXCLUSIVAS DO GIROTRADE CD ═══ -->
+        <div id="cd-dashboard"      class="category-section" style="display:none;padding:18px 24px"></div>
+        <div id="cd-atestados"      class="category-section" style="display:none;padding:18px 24px"></div>
+        <div id="cd-cotas"          class="category-section" style="display:none;padding:18px 24px"></div>
+        <div id="cd-movimentacoes"  class="category-section" style="display:none;padding:18px 24px"></div>
+        <div id="cd-offboarding"    class="category-section" style="display:none;padding:18px 24px"></div>
+        <div id="cd-absenteismo"    class="category-section" style="display:none;padding:18px 24px"></div>
+        <div id="cd-recrutamento"   class="category-section" style="display:none;padding:18px 24px"></div>
+
+        <!-- ANÁLISES TOTAIS -->
+        <div id="analisesContent" style="display:none">
+            <div style="padding:40px;text-align:center;color:var(--text-secondary)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="48" height="48" style="margin-bottom:16px;opacity:.4"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                <p>Análises Totais — cruzamento entre Yandeh e Girotrade CD.<br>Em construção.</p>
+            </div>
+        </div>
 
     </main>
 </div>
