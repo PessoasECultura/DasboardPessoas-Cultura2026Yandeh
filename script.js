@@ -6,19 +6,45 @@
 /* ── ESTADO ───────────────────────────────── */
 let allData = [];
 let headcountData = [];   // aba Headcount: { mes, valor } por linha
-let admissoesData = [];   // aba Admissões: linhas com colA e mes (col F)
-let offboardingData = []; // aba Offboarding: linhas com colA e mes (col E)
-let cotasPcdData = [];    // aba Cotas PCD: { mes, ativos, cotaMin, cotaAtual, contratar }
-let cotasJaData  = [];    // aba Cotas JA:  { mes, ativos, minPessoas, maxPessoas, cotaAtual, contratar }
+let admissoesData = [];   // aba Admissões
+let atestadosData = [];   // aba Atestados
+let offboardingData = []; // aba Offboarding
+let cotasPcdData = [];    // aba Cotas PCD
+let cotasJaData  = [];    // aba Cotas JA
 let movimentData = [];    // aba Movimentações Internas
-let rsData       = [];    // planilha R&S: linhas da aba "Controle de Vagas 2026"
+let rsData       = [];    // planilha R&S
 let peData       = [];    // planilha Período de Experiência
-let metasData    = [];    // planilha Metas: OKRs com ações
-let climaData    = [];    // aba Clima das Áreas: { mes, mesNum, area, criticidade, bancohoras, pessoas, horasPorPessoa }
-let ativosData   = [];    // aba Ativos: colaboradores ativos com salário, área, gestor, etc.
+let metasData    = [];    // planilha Metas
+let climaData    = [];    // aba Clima das Áreas
+let ativosData   = [];    // aba Ativos
 let charts  = {};          // instâncias Chart.js ativas
 let currentCategory = 'dashboard';
 let hasRealData = false;   // true quando planilha foi importada
+
+// Store permanente dos dados Yandeh — nunca sobrescrito pelo CD
+const _Y = {
+  save() {
+    this.allData=[...allData]; this.headcountData=[...headcountData];
+    this.offboardingData=[...offboardingData]; this.movimentData=[...movimentData];
+    this.atestadosData=[...atestadosData]; this.cotasPcdData=[...cotasPcdData];
+    this.cotasJaData=[...cotasJaData]; this.ativosData=[...ativosData];
+    this.admissoesData=[...admissoesData];
+    this.rsData=[...rsData];
+    this.hasRealData=hasRealData;
+  },
+  restore() {
+    allData=this.allData||[]; headcountData=this.headcountData||[];
+    offboardingData=this.offboardingData||[]; movimentData=this.movimentData||[];
+    atestadosData=this.atestadosData||[]; cotasPcdData=this.cotasPcdData||[];
+    cotasJaData=this.cotasJaData||[]; ativosData=this.ativosData||[];
+    admissoesData=this.admissoesData||[];
+    rsData=this.rsData||[];
+    hasRealData=this.hasRealData||false;
+  },
+  allData:[], headcountData:[], offboardingData:[], movimentData:[],
+  atestadosData:[], cotasPcdData:[], cotasJaData:[], ativosData:[],
+  admissoesData:[], rsData:[], hasRealData:false
+};
 
 /* ── PALETA ───────────────────────────────── */
 const C = {
@@ -115,6 +141,7 @@ function initEventListeners() {
   const cidTooltip = document.getElementById('cid-tooltip');
   if (cidTooltip) {
     document.addEventListener('mouseover', e => {
+      if (currentDashboard === 'cd' || currentDashboard === 'analises') return; // não mostra tooltip Yandeh no CD/Análises
       const card = e.target.closest('.kpi-card');
       if (!card) return;
       const label = card.querySelector('.kpi-label')?.textContent || '';
@@ -142,6 +169,7 @@ function initEventListeners() {
   const inssTooltip = document.getElementById('inss-tooltip');
   if (inssTooltip) {
     document.addEventListener('mouseover', e => {
+      if (currentDashboard === 'cd') return;
       const card = e.target.closest('.kpi-card');
       if (!card) return;
       const label = card.querySelector('.kpi-label')?.textContent || '';
@@ -192,6 +220,17 @@ function initEventListeners() {
   const rsUploadEl = document.getElementById('rs-file-upload');
   if (rsUploadEl) rsUploadEl.addEventListener('change', handleRsUpload);
 
+  /* Upload CD */
+  const cdUploadEl = document.getElementById('cd-file-upload');
+  if (cdUploadEl) cdUploadEl.addEventListener('change', handleCDUpload);
+
+  /* Nav CD — delegação para funcionar mesmo com display:none no pai */
+  document.getElementById('sidebar').addEventListener('click', e => {
+    if (e.target.closest('.dash-switcher')) return; // ignora botões do switcher
+    const item = e.target.closest('[data-cd-category]');
+    if (item) renderCDSection(item.dataset.cdCategory);
+  });
+
   // Upload Período de Experiência — delegação
   document.addEventListener('change', e => {
     if (e.target && e.target.id === 'pe-file-upload') handlePeUpload(e);
@@ -207,12 +246,20 @@ document.getElementById('toggleSidebarMobile')
   .addEventListener('click', toggleSidebar);
 
   /* Navegação */
-  document.querySelectorAll('.nav-item').forEach(btn => {
-    btn.addEventListener('click', () => switchCategory(btn.dataset.category));
+  document.querySelectorAll('#navYandeh .nav-item, #navAnalises .nav-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.category) switchCategory(btn.dataset.category);
+    });
   });
 
   /* Filtros */
   document.getElementById('month-select').addEventListener('change', () => {
+    if (currentDashboard === 'analises') { renderAnalises(); return; }
+    if (currentDashboard === 'cd' && cdData.hasData) {
+      if (cdCurrentCategory === 'cd-dashboard') renderCDDashboard();
+      else renderCDSection(cdCurrentCategory);
+      return;
+    }
     renderKPIs(currentCategory);
     renderCharts(currentCategory);
     if (currentCategory === 'recrutamento') renderRS();
@@ -232,10 +279,17 @@ document.getElementById('toggleSidebarMobile')
   /* Upload */
   document.getElementById('file-upload').addEventListener('change', handleUpload);
 
+  /* Limpar arquivo CD */
+  const clearCDEl = document.getElementById('clearFileCD');
+  if (clearCDEl) clearCDEl.addEventListener('click', () => {
+    cdData = {ativos:[],headcount:[],offboarding:[],moviment:[],atestados:[],cotasPcd:[],cotasJa:[],abs:[],hasData:false};
+    const badgeCD = document.getElementById('fileBadgeCD');
+    if (badgeCD) badgeCD.style.display = 'none';
+    if (currentDashboard === 'cd') renderCDSection('cd-dashboard');
+  });
   /* Exportar */
   const exportBtn = document.getElementById('exportBtn');
   if (exportBtn) exportBtn.addEventListener('click', exportData);
-
   /* Download modelo */
   document.getElementById('downloadTemplate').addEventListener('click', downloadTemplate);
 
@@ -273,29 +327,2893 @@ function loadSidebarState() {
 function toggleTheme() {
   const dark = document.getElementById('themeToggle').checked;
   document.body.classList.toggle('dark-mode', dark);
+  document.body.classList.toggle('light-mode', !dark);
   localStorage.setItem('pc-theme', dark ? '1' : '0');
-  // Recriar gráficos com cores atualizadas
   destroyCharts();
-renderKPIs(currentCategory);
-renderCharts(currentCategory);
+  if (currentDashboard === 'analises') {
+    renderAnalises();
+  } else if (currentDashboard === 'cd' && cdData.hasData) {
+    if (cdCurrentCategory === 'cd-dashboard') renderCDDashboard();
+    else renderCDSection(cdCurrentCategory);
+  } else if (currentDashboard === 'yandeh') {
+    renderKPIs(currentCategory);
+    renderCharts(currentCategory);
+  }
 }
 function loadTheme() {
-  const dark = localStorage.getItem('pc-theme') === '1';
-  document.getElementById('themeToggle').checked = dark;
-  document.body.classList.toggle('dark-mode', dark);
+  // Dark mode é o padrão. Reseta qualquer preferência antiga de light mode.
+  localStorage.removeItem('pc-theme'); // força sempre dark ao abrir
+  document.getElementById('themeToggle').checked = true;
+  document.body.classList.add('dark-mode');
+  document.body.classList.remove('light-mode');
 }
 
 /* ═══════════════════════════════════════════
    NAVEGAÇÃO
 ═══════════════════════════════════════════ */
+/* ═══════════════════════════════════════════
+   DASHBOARD SWITCHER + GIROTRADE CD
+═══════════════════════════════════════════ */
+let currentDashboard = 'yandeh';
+let cdCurrentCategory = 'cd-dashboard';
+let cdData = {
+  ativos:[], headcount:[], offboarding:[], moviment:[],
+  atestados:[], cotasPcd:[], cotasJa:[], abs:[], admissoes:[], rs:[], hasData:false
+};
+
+function switchDashboard(dash) {
+  currentDashboard = dash;
+
+  // Botões do switcher
+  document.querySelectorAll('.dash-switch-btn').forEach(b => b.classList.remove('active'));
+  const idMap = {yandeh:'btnDashYandeh', cd:'btnDashCD', analises:'btnDashAnalises'};
+  document.getElementById(idMap[dash])?.classList.add('active');
+
+  // Navs
+  document.getElementById('navYandeh').style.display  = dash==='yandeh'  ? '' : 'none';
+  document.getElementById('navCD').style.display       = dash==='cd'      ? '' : 'none';
+  document.getElementById('navAnalises').style.display = dash==='analises'? '' : 'none';
+
+  // Botões de importar — só mostra o do dashboard ativo
+  const btnY  = document.getElementById('btnImportYandeh');
+  const btnCD = document.getElementById('btnImportCD');
+  if (btnY)  btnY.style.display  = (dash === 'yandeh')   ? '' : 'none';
+  if (btnCD) btnCD.style.display = (dash === 'cd')        ? '' : 'none';
+
+  // Badges de arquivo — mostra apenas o do dash atual
+  const badgeY  = document.getElementById('fileBadge');
+  const badgeCD = document.getElementById('fileBadgeCD');
+  if (badgeY)  badgeY.style.display  = (dash === 'yandeh'  && hasRealData) ? 'flex' : 'none';
+  if (badgeCD) badgeCD.style.display = (dash === 'cd'       && cdData.hasData) ? 'flex' : 'none';
+
+  // Logo
+  const logos = {yandeh:'Pessoas & Cultura', cd:'Girotrade CD', analises:'Análises Totais'};
+  document.getElementById('sidebarLogoTitle').textContent = logos[dash]||'';
+
+  // Conteúdo analises — mostra/esconde
+  const anEl = document.getElementById('analisesContent');
+  if (anEl) anEl.style.display = dash==='analises' ? '' : 'none';
+
+  if (dash === 'yandeh') {
+    // Esconde seções CD e analises
+    document.querySelectorAll('.category-section[id^="cd-"]').forEach(el => {
+      el.classList.remove('active'); el.style.display = 'none';
+    });
+    // Restaura seções Yandeh
+    document.querySelectorAll('.category-section:not([id^="cd-"])').forEach(s => {
+      s.style.display = '';
+    });
+    document.querySelectorAll('.kpi-section').forEach(el => el.style.display = '');
+    _Y.restore();
+    destroyCharts();
+    const cat = currentCategory || 'dashboard';
+    switchCategory(cat);
+    if (hasRealData) {
+      populateMainFilters();
+      renderKPIs(cat);
+      renderCharts(cat);
+    }
+
+  } else if (dash === 'cd') {
+    // Esconde tudo Yandeh
+    document.querySelectorAll('.category-section').forEach(s => {
+      s.classList.remove('active'); s.style.display = 'none';
+    });
+    document.querySelectorAll('.kpi-section').forEach(el => el.style.display = 'none');
+    destroyCharts();
+    cdCurrentCategory = 'cd-dashboard';
+    document.querySelectorAll('#navCD .nav-item').forEach(n => n.classList.remove('active'));
+    document.querySelector('#navCD [data-cd-category="cd-dashboard"]')?.classList.add('active');
+    renderCDDashboard();
+
+  } else if (dash === 'analises') {
+    // Esconde TUDO — seções Yandeh, CD e kpi-section
+    document.querySelectorAll('.category-section').forEach(s => {
+      s.classList.remove('active'); s.style.display = 'none';
+    });
+    document.querySelectorAll('.kpi-section').forEach(el => el.style.display = 'none');
+    destroyCharts();
+    renderAnalises();
+  }
+}
+
+// Troca dados globais pelo CD, executa fn(), restaura
+function withCDData(fn) {
+  const bk = { allData, headcountData, offboardingData, movimentData,
+    atestadosData, cotasPcdData, cotasJaData, ativosData, hasRealData };
+  const normMes = s => {
+    const M={'janeiro':'01','fevereiro':'02','março':'03','marco':'03','abril':'04','maio':'05','junho':'06','julho':'07','agosto':'08','setembro':'09','outubro':'10','novembro':'11','dezembro':'12'};
+    const v=String(s||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    if(M[v]) return M[v]; const n=parseInt(v); return(!isNaN(n)&&n>=1&&n<=12)?String(n).padStart(2,'0'):null;
+  };
+  allData = cdData.ativos.map(d=>({...d, Area:d.area, Gestor:d.gestor, Nome:d.nome,
+    Cargo:d.cargo, Classificacao:d.classificacao, Salário:d.salario, Salario:d.salario }));
+  headcountData = cdData.headcount.map(d=>({mes:d.mes, valor:d.hc}));
+  offboardingData = cdData.offboarding.map(d=>({
+    nome:d.nome, area:d.area, Area:d.area, gestor:d.gestor, cargo:d.cargo,
+    classificacao:d.classificacao, tipo:d.tipo, motivo:d.motivo, mes:d.mes,
+    diasTrabalhados:d.diasTrabalhados,
+    tempoCasa:d.diasTrabalhados?d.diasTrabalhados/365:0,
+    periodo:d.periodo, dtAdm:null, dtDem:null,
+  }));
+  movimentData = cdData.moviment;
+  atestadosData = cdData.atestados.map(d=>({
+    Nome:d.nome, Area:d.area, cargo:d.cargo, Classificacao:d.classificacao,
+    DtInicioAfast:d.dtInicioAfast, DtFimAfast:d.dtFimAfast,
+    DiasAfast:d.diasAfast, DiasAuxDoenca:d.diasAuxDoenca,
+    Tipo:d.motivo, CID:d.cid, Mes:d.mes, Salário:d.salario,
+  }));
+  cotasPcdData = cdData.cotasPcd;
+  cotasJaData  = cdData.cotasJa;
+  ativosData   = cdData.ativos.map(d=>({
+    area:d.area, gestor:d.gestor, nome:d.nome, cargo:d.cargo,
+    classificacao:d.classificacao, salario:d.salario,
+    dtAdm:d.dtAdm, dtFimExp:d.dtFimExp, diasExp:d.diasExp, empresa:d.empresa,
+  }));
+  hasRealData = true;
+  fn();
+  allData=bk.allData; headcountData=bk.headcountData;
+  offboardingData=bk.offboardingData; movimentData=bk.movimentData;
+  atestadosData=bk.atestadosData; cotasPcdData=bk.cotasPcdData;
+  cotasJaData=bk.cotasJaData; ativosData=bk.ativosData; hasRealData=bk.hasRealData;
+}
+
+const CD_CAT_MAP = {
+  'cd-dashboard':'dashboard','cd-atestados':'atestados','cd-cotas':'cotas',
+  'cd-movimentacoes':'movimentacoes','cd-offboarding':'offboarding',
+};
+
+function renderCDAbsenteismo(mesSel) {
+  // Seção dedicada
+  document.querySelectorAll('.category-section').forEach(s => { s.classList.remove('active'); s.style.display='none'; });
+  document.querySelectorAll('.kpi-section').forEach(el => el.style.display='none');
+  const el = document.getElementById('cd-absenteismo');
+  if (!el) return;
+  el.style.display = ''; el.classList.add('active');
+
+  const abs = cdData.abs || [];
+
+  // Helper: filtra por mês
+  const byMes = m => abs.filter(r => r.mes === m && r.presencaPrevista > 0);
+  const media = (arr, field) => arr.length ? arr.reduce((s,r)=>s+(r[field]||0),0)/arr.length : 0;
+
+  // Dados do mês selecionado e mês anterior
+  const mesPrev = mesSel ? String(parseInt(mesSel)-1).padStart(2,'0') : null;
+  const D     = mesSel ? byMes(mesSel) : abs.filter(r=>r.presencaPrevista>0);
+  const Dprev = mesPrev ? byMes(mesPrev) : [];
+
+  // Métricas principais
+  const avgPrev    = media(D, 'presencaPrevista');
+  const avgPres    = media(D, 'presentes');
+  const avgAbs     = media(D, 'abs');
+  const pctAbs     = avgPrev > 0 ? (avgAbs / avgPrev * 100) : 0;
+  const pctPres    = avgPrev > 0 ? (avgPres / avgPrev * 100) : 0;
+
+  const avgPrevAnt = media(Dprev, 'presencaPrevista');
+  const avgPresAnt = media(Dprev, 'presentes');
+  const avgAbsAnt  = media(Dprev, 'abs');
+  const pctAbsAnt  = avgPrevAnt > 0 ? (avgAbsAnt / avgPrevAnt * 100) : 0;
+
+  const MESES_L = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const mesNome = mesSel ? MESES_L[parseInt(mesSel)-1] : 'Acumulado';
+  const mesNomeAnt = mesPrev && parseInt(mesPrev) >= 1 ? MESES_L[parseInt(mesPrev)-1] : null;
+
+  const fmt1 = v => v.toFixed(1);
+  const delta = (atual, ant, higherIsBetter = true) => {
+    if (!ant || !mesSel) return '';
+    const diff = atual - ant;
+    const pct  = ant > 0 ? (diff/ant*100).toFixed(1) : '0.0';
+    const up   = diff >= 0;
+    const cor  = (higherIsBetter ? up : !up) ? '#107c10' : '#e81123';
+    const icon = up ? '▲' : '▼';
+    return `<span style="color:${cor};font-size:11px;font-weight:600">${icon} ${Math.abs(diff).toFixed(1)} (${Math.abs(pct)}%) vs ${mesNomeAnt}</span>`;
+  };
+
+  el.innerHTML = `
+    <!-- 3 Cards principais -->
+    <div class="kpi-section" style="margin-bottom:16px">
+      <div class="kpi-container" style="grid-template-columns:repeat(3,1fr)">
+
+        <!-- Presença Prevista -->
+        <div class="kpi-card kpi-blue">
+          <div class="kpi-icon-wrap kpi-icon-blue">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+          </div>
+          <div class="kpi-content">
+            <div class="kpi-label">PRESENÇA PREVISTA</div>
+            <div class="kpi-value">${fmt1(avgPrev)}</div>
+            <div class="kpi-sub">Média diária — ${mesNome}</div>
+            <div style="margin-top:4px">${delta(avgPrev, avgPrevAnt, true)}</div>
+          </div>
+        </div>
+
+        <!-- Presentes -->
+        <div class="kpi-card kpi-green">
+          <div class="kpi-icon-wrap kpi-icon-green">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div class="kpi-content">
+            <div class="kpi-label">PRESENTES</div>
+            <div class="kpi-value">${fmt1(avgPres)}</div>
+            <div class="kpi-sub">${pctPres.toFixed(1)}% da presença prevista — ${mesNome}</div>
+            <div style="margin-top:4px">${delta(avgPres, avgPresAnt, true)}</div>
+          </div>
+        </div>
+
+        <!-- % Absenteísmo -->
+        <div class="kpi-card kpi-orange">
+          <div class="kpi-icon-wrap kpi-icon-orange">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </div>
+          <div class="kpi-content">
+            <div class="kpi-label">% ABSENTEÍSMO</div>
+            <div class="kpi-value">${pctAbs.toFixed(1)}%</div>
+            <div class="kpi-sub">Média de ${fmt1(avgAbs)} faltantes/dia — ${mesNome}</div>
+            <div style="margin-top:4px">${delta(pctAbs, pctAbsAnt, false)}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Gráfico misto -->
+    <div class="chart-card">
+      <div class="chart-title">${mesSel ? `Absenteísmo — Dia a Dia (${mesNome})` : 'Absenteísmo — Evolução Mensal'}</div>
+      <canvas id="chartCDAbsMain" height="100"></canvas>
+    </div>`;
+
+  // ── Gráfico ──
+  const t    = chartTheme();
+  const isDk = isDark();
+  const tooltipOpts = {backgroundColor:t.bg,titleColor:t.text,bodyColor:t.tick,borderWidth:1,borderColor:isDk?'rgba(255,255,255,.1)':'rgba(0,0,0,.08)',padding:10};
+
+  if (charts['chartCDAbsMain']) charts['chartCDAbsMain'].destroy();
+  const chartEl = document.getElementById('chartCDAbsMain');
+  if (!chartEl) return;
+
+  let labels, prevData, presData, absData;
+
+  if (mesSel) {
+    // Dia a dia do mês selecionado
+    const diasMes = new Date(2026, parseInt(mesSel), 0).getDate();
+    labels   = Array.from({length:diasMes}, (_,i) => String(i+1).padStart(2,'0'));
+    const byDay = dia => D.find(r => {
+      const d = r.data instanceof Date ? r.data : new Date(r.data);
+      return String(d.getUTCDate()).padStart(2,'0') === dia;
+    });
+    prevData = labels.map(d => byDay(d)?.presencaPrevista ?? null);
+    presData = labels.map(d => byDay(d)?.presentes       ?? null);
+    absData  = labels.map(d => {
+      const r = byDay(d);
+      return (r && r.presencaPrevista > 0) ? +(r.abs / r.presencaPrevista * 100).toFixed(1) : null;
+    });
+  } else {
+    // Evolução mensal — média por mês
+    const MESES_L = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    labels   = MESES_L;
+    prevData = MESES_L.map((_,i) => { const m=byMes(String(i+1).padStart(2,'0')); return m.length ? +(media(m,'presencaPrevista').toFixed(1)) : null; });
+    presData = MESES_L.map((_,i) => { const m=byMes(String(i+1).padStart(2,'0')); return m.length ? +(media(m,'presentes').toFixed(1)) : null; });
+    absData  = MESES_L.map((_,i) => { const m=byMes(String(i+1).padStart(2,'0')); const prev=media(m,'presencaPrevista'); return (m.length&&prev>0) ? +(media(m,'abs')/prev*100).toFixed(1) : null; });
+  }
+
+  charts['chartCDAbsMain'] = new Chart(chartEl, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Presença Prevista',
+          data: prevData,
+          type: 'bar',
+          backgroundColor: isDk ? 'rgba(0,120,212,.5)' : 'rgba(0,120,212,.6)',
+          borderRadius: 4,
+          yAxisID: 'y',
+          order: 2,
+        },
+        {
+          label: 'Presentes',
+          data: presData,
+          type: 'bar',
+          backgroundColor: isDk ? 'rgba(16,124,16,.5)' : 'rgba(16,124,16,.6)',
+          borderRadius: 4,
+          yAxisID: 'y',
+          order: 2,
+        },
+        {
+          label: '% Absenteísmo',
+          data: absData,
+          type: 'line',
+          borderColor: '#e81123',
+          backgroundColor: 'transparent',
+          tension: .3,
+          pointRadius: 3,
+          pointBackgroundColor: '#e81123',
+          borderWidth: 2,
+          yAxisID: 'y2',
+          order: 1,
+          spanGaps: true,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: {display:true, position:'top', labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:11}}},
+        tooltip: tooltipOpts,
+      },
+      scales: {
+        x: { ticks:{color:t.tick,font:{size:mesSel?9:11},maxRotation:0}, grid:{color:t.grid}, border:{display:false} },
+        y: {
+          position: 'left',
+          beginAtZero: true,
+          ticks: {color:t.tick, font:{size:11}},
+          grid: {color:t.grid},
+          border: {display:false},
+          title: {display:true, text:'Pessoas', color:t.tick, font:{size:10}},
+        },
+        y2: {
+          position: 'right',
+          beginAtZero: true,
+          max: 100,
+          ticks: {color:'#e81123', font:{size:11}, callback: v => v+'%'},
+          grid: {drawOnChartArea:false},
+          border: {display:false},
+          title: {display:true, text:'% ABS', color:'#e81123', font:{size:10}},
+        },
+      },
+    },
+  });
+}
+
+/* ════════════════════════════════════════════
+   ANÁLISES TOTAIS — Yandeh + Girotrade CD
+════════════════════════════════════════════ */
+function renderAnalises() {
+  const el = document.getElementById('analisesContent');
+  if (!el) return;
+
+  // Destrói charts de análises antes de recriar o HTML
+  const analisesCharts = ['chartAnalisesFluxo','chartAnalisesLider','chartAnalisesExp',
+    'chartAnalisesAtes','chartAnalisesMotivos','chartAnalisesCotas','chartAnalisesJA',
+    'chartAnalisesRS','chartAnalisesRadar'];
+  analisesCharts.forEach(k => {
+    try { if(charts[k]) { charts[k].destroy(); delete charts[k]; } } catch(e) {}
+  });
+
+  // Garante que os dados Yandeh estão nos globals
+  _Y.restore();
+
+  const mesSel = document.getElementById('month-select')?.value || '';
+
+  const t   = chartTheme();
+  const isDk= isDark();
+  const MESES_L = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const mesNome  = mesSel ? MESES_L[parseInt(mesSel)-1] : 'Acumulado 2026';
+  const mesPrev  = mesSel ? String(parseInt(mesSel)-1).padStart(2,'0') : null;
+  const mesNomeAnt = mesPrev && parseInt(mesPrev)>=1 ? MESES_L[parseInt(mesPrev)-1] : null;
+
+  const fmtBRL = v => Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0});
+  const tooltipOpts = {backgroundColor:t.bg,titleColor:t.text,bodyColor:t.tick,borderWidth:1,borderColor:isDk?'rgba(255,255,255,.08)':'rgba(0,0,0,.07)',padding:10};
+
+  // ── Dados Yandeh ──
+  const yAtivos    = ativosData      || [];
+  const yOffTodos  = offboardingData || [];
+  const yAdmTodos  = admissoesData   || [];
+  const yHc        = headcountData   || [];
+  // Atestados Yandeh ficam em allData com Tipo='Atestado'
+  const yAtesTodos = (allData||[]).filter(d=>d.Tipo==='Atestado');
+
+  const yOff  = mesSel ? yOffTodos.filter(r=>(r.mes||r.mesDeslig||'')===mesSel) : yOffTodos;
+  const yAdm  = mesSel ? yAdmTodos.filter(r=>r.mes===mesSel) : yAdmTodos;
+  const yOffP = mesPrev ? yOffTodos.filter(r=>(r.mes||r.mesDeslig||'')===mesPrev) : [];
+  const yAdmP = mesPrev ? yAdmTodos.filter(r=>r.mes===mesPrev) : [];
+
+  const yFolha   = yAtivos.reduce((s,d)=>s+(d.salario||0),0);
+  const yHcVal   = yHc.length ? Math.round(yHc[yHc.length-1].hc||yAtivos.length) : yAtivos.length;
+  const yTurnMes = yHcVal>0 ? (yOff.length/yHcVal*100).toFixed(1) : '0.0';
+  const yTurnAno = yHcVal>0 ? (yOffTodos.length/yHcVal*100).toFixed(1) : '0.0';
+
+  // ── Dados CD ──
+  const cdAtivos   = cdData.ativos      || [];
+  const cdOffTodos = cdData.offboarding || [];
+  const cdAdmTodos = cdData.admissoes   || [];
+  const cdHcArr    = cdData.headcount   || [];
+
+  const cdOff  = mesSel ? cdOffTodos.filter(r=>r.mes===mesSel) : cdOffTodos;
+  const cdAdm  = mesSel ? cdAdmTodos.filter(r=>r.mes===mesSel) : cdAdmTodos;
+  const cdOffP = mesPrev ? cdOffTodos.filter(r=>r.mes===mesPrev) : [];
+  const cdAdmP = mesPrev ? cdAdmTodos.filter(r=>r.mes===mesPrev) : [];
+
+  const cdFolha   = cdAtivos.reduce((s,d)=>s+(d.salario||0),0);
+  const cdHcVal   = cdHcArr.length ? Math.round(cdHcArr[cdHcArr.length-1].hc||cdAtivos.length) : cdAtivos.length;
+  const cdTurnMes = cdHcVal>0 ? (cdOff.length/cdHcVal*100).toFixed(1) : '0.0';
+  const cdTurnAno = cdHcVal>0 ? (cdOffTodos.length/cdHcVal*100).toFixed(1) : '0.0';
+
+  // ── Consolidado ──
+  const totalHC    = yHcVal + cdHcVal;
+  const totalFolha = yFolha + cdFolha;
+  const totalAdm   = yAdm.length + cdAdm.length;
+  const totalOff   = yOff.length + cdOff.length;
+  const totalAdmP  = yAdmP.length + cdAdmP.length;
+  const totalOffP  = yOffP.length + cdOffP.length;
+  const totalTurn  = totalHC>0 ? ((mesSel?totalOff:(yOffTodos.length+cdOffTodos.length))/totalHC*100).toFixed(1) : '0.0';
+
+  // Delta helper
+  const delta = (atual, ant, higherIsBetter=true) => {
+    if (!mesNomeAnt || ant===undefined) return '';
+    const diff = atual - ant;
+    const up   = diff >= 0;
+    const cor  = (higherIsBetter ? up : !up) ? '#0f7b3e' : '#c0392b';
+    const icon = up ? '▲' : '▼';
+    return `<span style="color:${cor};font-size:10px;font-weight:600">${icon} ${Math.abs(diff).toFixed(diff%1===0?0:1)} vs ${mesNomeAnt}</span>`;
+  };
+
+  const hasY  = yAtivos.length > 0;
+  const hasCD = cdAtivos.length > 0;
+  const noData = !hasY && !hasCD;
+
+  el.innerHTML = `
+    <div style="padding:24px 28px">
+      ${noData ? `<div class="empty-state"><p>Importe a planilha da <strong>Yandeh</strong> e do <strong>Girotrade CD</strong> para ver as análises consolidadas.</p></div>` : ''}
+
+      <!-- BLOCO 1: VISÃO CONSOLIDADA -->
+      <div style="margin-bottom:28px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:8px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2" width="15" height="15"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary)">Visão Consolidada — Yandeh + Girotrade CD</span>
+          </div>
+          <span style="font-size:11px;font-weight:600;color:var(--blue);background:rgba(26,86,160,.08);padding:3px 10px;border-radius:20px">${mesNome}</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px">
+          <!-- HC -->
+          <div class="kpi-card kpi-blue">
+            <div class="kpi-icon-wrap kpi-icon-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="17" height="17"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
+            <div class="kpi-content">
+              <div class="kpi-label">Headcount Total</div>
+              <div class="kpi-value" style="font-size:30px">${totalHC}</div>
+              <div class="kpi-sub" style="margin-top:5px">
+                <span style="margin-right:8px">● Yandeh ${yHcVal}</span><span>● CD ${cdHcVal}</span>
+              </div>
+            </div>
+          </div>
+          <!-- Folha -->
+          <div class="kpi-card kpi-green">
+            <div class="kpi-icon-wrap kpi-icon-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="17" height="17"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg></div>
+            <div class="kpi-content">
+              <div class="kpi-label">Folha Consolidada</div>
+              <div class="kpi-value" style="font-size:20px;letter-spacing:-.03em">${fmtBRL(totalFolha)}</div>
+              <div class="kpi-sub" style="margin-top:5px">
+                <span style="margin-right:8px">● ${fmtBRL(yFolha)}</span><span>● ${fmtBRL(cdFolha)}</span>
+              </div>
+            </div>
+          </div>
+          <!-- Turnover -->
+          <div class="kpi-card kpi-orange">
+            <div class="kpi-icon-wrap kpi-icon-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="17" height="17"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg></div>
+            <div class="kpi-content">
+              <div class="kpi-label">Turnover ${mesSel?'no Mês':'Acumulado'}</div>
+              <div class="kpi-value" style="font-size:30px">${totalTurn}%</div>
+              <div class="kpi-sub" style="margin-top:5px">
+                <span style="margin-right:8px">● Y ${mesSel?yTurnMes:yTurnAno}%</span><span>● CD ${mesSel?cdTurnMes:cdTurnAno}%</span>
+              </div>
+              <div style="margin-top:4px">${mesSel?delta(totalOff,totalOffP,false):''}</div>
+            </div>
+          </div>
+          <!-- Movimentação -->
+          <div class="kpi-card" style="border-left:3px solid #5b3ea6">
+            <div class="kpi-icon-wrap" style="background:rgba(91,62,166,.08);color:#5b3ea6"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="17" height="17"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg></div>
+            <div class="kpi-content">
+              <div class="kpi-label">Movimentação — ${mesNome}</div>
+              <div class="kpi-value" style="font-size:30px;color:#5b3ea6">${totalAdm+totalOff}</div>
+              <div class="kpi-sub" style="margin-top:5px">
+                <span style="color:var(--green);font-weight:600;margin-right:8px">▲ ${totalAdm} adm</span>
+                <span style="color:var(--orange);font-weight:600">▼ ${totalOff} dem</span>
+              </div>
+              <div style="margin-top:4px">${mesSel?delta(totalAdm+totalOff,totalAdmP+totalOffP,false):''}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Gráfico fluxo -->
+        <div class="chart-card">
+          <div class="chart-title">${mesSel?`Admissões e Demissões — ${mesNome} por Empresa`:'Admissões e Demissões por Mês — Consolidado'}</div>
+          <canvas id="chartAnalisesFluxo" height="${mesSel?60:85}"></canvas>
+        </div>
+      </div>
+
+      <!-- BLOCO 2: ESTRUTURA & CRESCIMENTO -->
+      <div style="margin-bottom:28px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2" width="15" height="15"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary)">Estrutura &amp; Crescimento</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+          <div class="chart-card" style="height:300px">
+            <div class="chart-title">Liderança vs Não-Liderança</div>
+            <div style="height:240px;position:relative"><canvas id="chartAnalisesLider"></canvas></div>
+          </div>
+          <div class="chart-card" style="height:300px">
+            <div class="chart-title">Período de Experiência Ativo</div>
+            <div style="height:240px;position:relative"><canvas id="chartAnalisesExp"></canvas></div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
+          <div class="kpi-card kpi-blue">
+            <div class="kpi-content">
+              <div class="kpi-label">Tempo Médio de Casa — Yandeh</div>
+              <div class="kpi-value" id="anTempoCasaY" style="font-size:26px">—</div>
+              <div class="kpi-sub">${yAtivos.length} colaboradores</div>
+            </div>
+          </div>
+          <div class="kpi-card" style="border-left:3px solid #0097a7">
+            <div class="kpi-content">
+              <div class="kpi-label">Tempo Médio de Casa — CD</div>
+              <div class="kpi-value" id="anTempoCasaCD" style="font-size:26px;color:#0097a7">—</div>
+              <div class="kpi-sub">${cdAtivos.length} colaboradores</div>
+            </div>
+          </div>
+          <div class="kpi-card" style="border-left:3px solid #5b3ea6">
+            <div class="kpi-content">
+              <div class="kpi-label">Em Período de Experiência</div>
+              <div class="kpi-value" id="anEmExp" style="font-size:26px;color:#5b3ea6">—</div>
+              <div class="kpi-sub">das duas empresas</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- BLOCO 3: SAÚDE ORGANIZACIONAL -->
+      <div style="margin-bottom:28px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2" width="15" height="15"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary)">Saúde Organizacional</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px">
+          <div class="kpi-card" style="border-left:3px solid #c0392b">
+            <div class="kpi-icon-wrap" style="background:rgba(192,57,43,.08);color:#c0392b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="17" height="17"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+            <div class="kpi-content">
+              <div class="kpi-label">Total de Atestados</div>
+              <div class="kpi-value" id="anTotalAtes" style="font-size:30px">—</div>
+              <div class="kpi-sub" id="anAtesSub">Yandeh + CD</div>
+            </div>
+          </div>
+          <div class="kpi-card" style="border-left:3px solid #7030a0">
+            <div class="kpi-icon-wrap" style="background:rgba(91,62,166,.08);color:#7030a0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="17" height="17"><path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v11m0 0h4"/></svg></div>
+            <div class="kpi-content">
+              <div class="kpi-label">CIDs Psiquiátricos</div>
+              <div class="kpi-value" id="anCidPsi" style="font-size:30px;color:#7030a0">—</div>
+              <div class="kpi-sub" id="anCidPsiSub">CIDs grupo F — ambas empresas</div>
+            </div>
+          </div>
+          <div class="kpi-card" style="border-left:3px solid #d97706">
+            <div class="kpi-icon-wrap" style="background:rgba(217,119,6,.08);color:#d97706"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="17" height="17"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+            <div class="kpi-content">
+              <div class="kpi-label">Dias Afastados</div>
+              <div class="kpi-value" id="anDiasAfas" style="font-size:30px">—</div>
+              <div class="kpi-sub" id="anDiasAfasSub">total consolidado</div>
+            </div>
+          </div>
+          <div class="kpi-card" style="border-left:3px solid #0891b2">
+            <div class="kpi-icon-wrap" style="background:rgba(8,145,178,.08);color:#0891b2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="17" height="17"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+            <div class="kpi-content">
+              <div class="kpi-label">% Absenteísmo CD</div>
+              <div class="kpi-value" id="anAbsPct" style="font-size:30px;color:#0891b2">—</div>
+              <div class="kpi-sub" id="anAbsSub">média do período</div>
+            </div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="chart-card" style="height:280px">
+            <div class="chart-title">Atestados por Mês — Yandeh vs CD</div>
+            <div style="height:220px;position:relative"><canvas id="chartAnalisesAtes"></canvas></div>
+          </div>
+          <div class="chart-card" style="height:280px">
+            <div class="chart-title">Principais Motivos de Desligamento</div>
+            <div style="height:220px;position:relative"><canvas id="chartAnalisesMotivos"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- BLOCO 4: CONFORMIDADE & PIPELINE -->
+      <div style="margin-bottom:28px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2" width="15" height="15"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+          <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary)">Conformidade &amp; Pipeline</span>
+        </div>
+
+        <!-- Cotas: 4 KPIs -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px">
+          <div class="kpi-card kpi-blue">
+            <div class="kpi-content">
+              <div class="kpi-label">PCD — Cota Atual (Y)</div>
+              <div class="kpi-value" id="anPcdY" style="font-size:28px">—</div>
+              <div class="kpi-sub" id="anPcdYSub">mínimo: —</div>
+            </div>
+          </div>
+          <div class="kpi-card" style="border-left:3px solid #0097a7">
+            <div class="kpi-content">
+              <div class="kpi-label">PCD — Cota Atual (CD)</div>
+              <div class="kpi-value" id="anPcdCD" style="font-size:28px;color:#0097a7">—</div>
+              <div class="kpi-sub" id="anPcdCDSub">mínimo: —</div>
+            </div>
+          </div>
+          <div class="kpi-card kpi-green">
+            <div class="kpi-content">
+              <div class="kpi-label">JA — Cota Atual (Y)</div>
+              <div class="kpi-value" id="anJaY" style="font-size:28px">—</div>
+              <div class="kpi-sub" id="anJaYSub">mínimo: —</div>
+            </div>
+          </div>
+          <div class="kpi-card" style="border-left:3px solid #0f7b3e">
+            <div class="kpi-content">
+              <div class="kpi-label">JA — Cota Atual (CD)</div>
+              <div class="kpi-value" id="anJaCD" style="font-size:28px;color:#0f7b3e">—</div>
+              <div class="kpi-sub" id="anJaCDSub">mínimo: —</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Gráficos cotas + RS -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+          <div class="chart-card" style="height:280px">
+            <div class="chart-title">Cotas PCD — Yandeh vs CD</div>
+            <div style="height:220px;position:relative"><canvas id="chartAnalisesCotas"></canvas></div>
+          </div>
+          <div class="chart-card" style="height:280px">
+            <div class="chart-title">Cotas JA — Yandeh vs CD</div>
+            <div style="height:220px;position:relative"><canvas id="chartAnalisesJA"></canvas></div>
+          </div>
+        </div>
+
+        <!-- R&S: KPIs comparados -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px">
+          <div class="kpi-card kpi-blue">
+            <div class="kpi-content">
+              <div class="kpi-label">Vagas Abertas</div>
+              <div class="kpi-value" id="anVagasAbertas" style="font-size:28px">—</div>
+              <div class="kpi-sub" id="anVagasAbertasSub">Yandeh + CD</div>
+            </div>
+          </div>
+          <div class="kpi-card kpi-green">
+            <div class="kpi-content">
+              <div class="kpi-label">Vagas Fechadas</div>
+              <div class="kpi-value" id="anVagasFechadas" style="font-size:28px">—</div>
+              <div class="kpi-sub" id="anVagasFechadasSub">Yandeh + CD</div>
+            </div>
+          </div>
+          <div class="kpi-card kpi-orange">
+            <div class="kpi-content">
+              <div class="kpi-label">SLA Médio</div>
+              <div class="kpi-value" id="anSlaMedia" style="font-size:28px">—</div>
+              <div class="kpi-sub">dias úteis — consolidado</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Gráfico SLA comparado -->
+        <div class="chart-card">
+          <div class="chart-title">SLA Médio de Recrutamento por Mês — Yandeh vs CD</div>
+          <canvas id="chartAnalisesRS" height="80"></canvas>
+        </div>
+      </div>
+
+      <!-- BLOCO 5: SCORECARD DE MATURIDADE -->
+      <div style="margin-bottom:28px" id="analisesBloco5">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2" width="15" height="15"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary)">Scorecard de Maturidade Organizacional</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+          <div class="kpi-card" id="anScoreY" style="flex-direction:row;align-items:center;gap:16px;padding:20px 24px">
+            <div style="text-align:center;flex-shrink:0">
+              <div id="anIndiceY" style="font-size:48px;font-weight:700;line-height:1">—</div>
+              <div style="font-size:9px;font-weight:600;letter-spacing:.08em;color:var(--text-secondary);text-transform:uppercase;margin-top:2px">/100</div>
+            </div>
+            <div>
+              <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary);margin-bottom:4px">Yandeh</div>
+              <div id="anLabelY" style="font-size:14px;font-weight:700">—</div>
+              <div id="anDetalheY" style="font-size:11px;color:var(--text-secondary);margin-top:6px;line-height:1.6">—</div>
+            </div>
+          </div>
+          <div class="kpi-card" id="anScoreCD" style="flex-direction:row;align-items:center;gap:16px;padding:20px 24px">
+            <div style="text-align:center;flex-shrink:0">
+              <div id="anIndiceCD" style="font-size:48px;font-weight:700;line-height:1">—</div>
+              <div style="font-size:9px;font-weight:600;letter-spacing:.08em;color:var(--text-secondary);text-transform:uppercase;margin-top:2px">/100</div>
+            </div>
+            <div>
+              <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary);margin-bottom:4px">Girotrade CD</div>
+              <div id="anLabelCD" style="font-size:14px;font-weight:700">—</div>
+              <div id="anDetalheCD" style="font-size:11px;color:var(--text-secondary);margin-top:6px;line-height:1.6">—</div>
+            </div>
+          </div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Radar de Maturidade — Yandeh vs Girotrade CD</div>
+          <div style="max-width:520px;margin:0 auto;height:320px;position:relative">
+            <canvas id="chartAnalisesRadar"></canvas>
+          </div>
+          <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:10px;color:var(--text-secondary);line-height:1.8">
+            <strong>Como ler:</strong> cada eixo vai de 0 a 100.
+            <strong>Estabilidade</strong> = 100 – turnover%.
+            <strong>Saúde</strong> = baseada na taxa de atestados/HC.
+            <strong>Crescimento</strong> = taxa de admissões/HC.
+            <strong>Conformidade</strong> = % de cumprimento das cotas PCD e JA.
+          </div>
+        </div>
+      </div>
+
+    </div>`;
+
+  // ── Gráficos (após DOM renderizar) ──
+  requestAnimationFrame(() => {
+
+  // ── Gráfico: fluxo consolidado ──
+  if (charts['chartAnalisesFluxo']) charts['chartAnalisesFluxo'].destroy();
+  const fluxoEl = document.getElementById('chartAnalisesFluxo');
+  if (fluxoEl) {
+    let fluxoData, fluxoOpts;
+    if (mesSel) {
+      // Quando mês selecionado: barras por empresa (Yandeh vs CD)
+      fluxoData = {
+        labels: ['Yandeh', 'Girotrade CD'],
+        datasets: [
+          { label:'Admissões', data:[yAdm.length, cdAdm.length], backgroundColor:['rgba(15,123,62,.75)','rgba(15,123,62,.45)'], borderRadius:5 },
+          { label:'Demissões', data:[yOff.length, cdOff.length], backgroundColor:['rgba(192,57,43,.75)','rgba(192,57,43,.45)'], borderRadius:5 },
+        ],
+      };
+      fluxoOpts = {
+        responsive:true, maintainAspectRatio:true,
+        plugins:{ legend:{display:true,position:'top',labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:11}}}, tooltip:tooltipOpts },
+        scales:{
+          x:{ticks:{color:t.tick,font:{size:12,weight:'600'}},grid:{display:false},border:{display:false}},
+          y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}},
+        },
+      };
+    } else {
+      // Sem filtro: evolução mensal empilhada
+      const admY  = MESES_L.map((_,i)=>{ const m=String(i+1).padStart(2,'0'); return yAdmTodos.filter(r=>r.mes===m).length; });
+      const admCD = MESES_L.map((_,i)=>{ const m=String(i+1).padStart(2,'0'); return cdAdmTodos.filter(r=>r.mes===m).length; });
+      const offY  = MESES_L.map((_,i)=>{ const m=String(i+1).padStart(2,'0'); return yOffTodos.filter(r=>(r.mes||r.mesDeslig||'')===m).length; });
+      const offCD = MESES_L.map((_,i)=>{ const m=String(i+1).padStart(2,'0'); return cdOffTodos.filter(r=>r.mes===m).length; });
+      fluxoData = { labels:MESES_L, datasets:[
+        { label:'Adm Yandeh', data:admY,  backgroundColor:'rgba(26,86,160,.7)',  borderRadius:4, stack:'adm' },
+        { label:'Adm CD',     data:admCD, backgroundColor:'rgba(8,145,178,.7)',   borderRadius:4, stack:'adm' },
+        { label:'Dem Yandeh', data:offY,  backgroundColor:'rgba(217,119,6,.7)',   borderRadius:4, stack:'dem' },
+        { label:'Dem CD',     data:offCD, backgroundColor:'rgba(192,57,43,.7)',   borderRadius:4, stack:'dem' },
+      ]};
+      fluxoOpts = {
+        responsive:true, maintainAspectRatio:true,
+        plugins:{ legend:{display:true,position:'top',labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:11}}}, tooltip:tooltipOpts },
+        scales:{
+          x:{ticks:{color:t.tick,font:{size:11}},grid:{color:t.grid},border:{display:false}},
+          y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}},
+        },
+      };
+    }
+    charts['chartAnalisesFluxo'] = new Chart(fluxoEl, { type:'bar', data:fluxoData, options:fluxoOpts });
+  }
+
+  // ── BLOCO 2: Estrutura & Crescimento ──
+
+  const LIDER_CLAS = ['ceo','diretor','head','gerente','coordenador','supervisor'];
+  const isLider = d => LIDER_CLAS.some(l => String(d.classificacao||d.nivel||'').toLowerCase().includes(l));
+
+  // Yandeh liderança
+  const yLider    = yAtivos.filter(isLider).length;
+  const yNaoLider = yAtivos.length - yLider;
+
+  // CD liderança
+  const cdLider    = cdAtivos.filter(isLider).length;
+  const cdNaoLider = cdAtivos.length - cdLider;
+
+  // Gráfico Liderança — barras agrupadas
+  if (charts['chartAnalisesLider']) charts['chartAnalisesLider'].destroy();
+  const liderEl = document.getElementById('chartAnalisesLider');
+  if (liderEl) {
+    charts['chartAnalisesLider'] = new Chart(liderEl, {
+      type: 'bar',
+      data: {
+        labels: ['Liderança', 'Não-Liderança'],
+        datasets: [
+          {
+            label:'Yandeh',
+            data:[yLider, yNaoLider],
+            backgroundColor:'rgba(26,86,160,.85)',
+            borderRadius:5,
+            borderSkipped:false,
+          },
+          {
+            label:'Girotrade CD',
+            data:[cdLider, cdNaoLider],
+            backgroundColor:'rgba(8,145,178,.85)',
+            borderRadius:5,
+            borderSkipped:false,
+          },
+        ],
+      },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{display:true,position:'top',labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:11}}},
+          tooltip:{...tooltipOpts, callbacks:{label:ctx=>{
+            const total = ctx.datasetIndex===0 ? yAtivos.length : cdAtivos.length;
+            return `${ctx.dataset.label}: ${ctx.parsed.y} (${total>0?(ctx.parsed.y/total*100).toFixed(1):0}%)`;
+          }}},
+        },
+        scales:{
+          x:{
+            ticks:{color:t.tick,font:{size:12,weight:'600'}},
+            grid:{display:false},border:{display:false}
+          },
+          y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:2},grid:{color:t.grid},border:{display:false}},
+        },
+      },
+    });
+  }
+
+  // Período de experiência — calcula das duas empresas
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const diasDesde = dtAdm => {
+    if (!(dtAdm instanceof Date)||isNaN(dtAdm)) return null;
+    const d = new Date(dtAdm); d.setHours(0,0,0,0);
+    return Math.round((hoje-d)/(1000*60*60*24));
+  };
+
+  const yExp45   = yAtivos.filter(d=>{const di=diasDesde(d.dtAdm);return di!==null&&di>=0&&di<=45;}).length;
+  const yExp90   = yAtivos.filter(d=>{const di=diasDesde(d.dtAdm);return di!==null&&di>45&&di<=90;}).length;
+  const cdExp45  = cdAtivos.filter(d=>{const di=diasDesde(d.dtAdm);return di!==null&&di>=0&&di<=45;}).length;
+  const cdExp90  = cdAtivos.filter(d=>{const di=diasDesde(d.dtAdm);return di!==null&&di>45&&di<=90;}).length;
+  const totalExp = yExp45+yExp90+cdExp45+cdExp90;
+
+  // Atualiza card
+  const emExpEl = document.getElementById('anEmExp');
+  if (emExpEl) emExpEl.textContent = totalExp;
+
+  // Gráfico Período de Experiência — barras agrupadas por faixa
+  if (charts['chartAnalisesExp']) charts['chartAnalisesExp'].destroy();
+  const expEl = document.getElementById('chartAnalisesExp');
+  if (expEl) {
+    charts['chartAnalisesExp'] = new Chart(expEl, {
+      type: 'bar',
+      data: {
+        labels: ['Até 45 dias', '45 a 90 dias'],
+        datasets: [
+          { label:'Yandeh', data:[yExp45,  yExp90],  backgroundColor:'rgba(26,86,160,.8)',  borderRadius:5 },
+          { label:'CD',     data:[cdExp45, cdExp90], backgroundColor:'rgba(8,145,178,.8)',  borderRadius:5 },
+        ],
+      },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{display:true,position:'top',labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:11}}},
+          tooltip:tooltipOpts,
+        },
+        scales:{
+          x:{ticks:{color:t.tick,font:{size:12,weight:'600'}},grid:{display:false},border:{display:false}},
+          y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}},
+        },
+      },
+    });
+  }
+
+  // Tempo médio de casa
+  const fmtAnos = anos => {
+    const a=Math.floor(anos), m=Math.round((anos-a)*12);
+    return a>0?`${a}a ${m}m`:`${m} meses`;
+  };
+  const tempoCasa = (arr) => {
+    const com = arr.filter(d=>d.dtAdm instanceof Date&&!isNaN(d.dtAdm));
+    if (!com.length) return '—';
+    return fmtAnos(com.reduce((s,d)=>s+(hoje-d.dtAdm)/(1000*60*60*24*365.25),0)/com.length);
+  };
+  const tcY  = document.getElementById('anTempoCasaY');
+  const tcCD = document.getElementById('anTempoCasaCD');
+  if (tcY)  tcY.textContent  = tempoCasa(yAtivos);
+  if (tcCD) tcCD.textContent = tempoCasa(cdAtivos);
+
+  // ── BLOCO 3: Saúde Organizacional ──
+
+  // Filtra apenas atestados por doença (Yandeh: TipoAfastamento contém 'doen'; CD: motivo vazio ou qualquer — todos são doença no CD)
+  const isDoencaY  = r => /doen/i.test(String(r.TipoAfastamento||'')) || String(r.TipoAfastamento||'').trim()===''|| String(r.TipoAfastamento||'').trim()==='0';
+  const yAtesTodosDoenca = yAtesTodos.filter(isDoencaY);
+  const yAtes  = mesSel ? yAtesTodosDoenca.filter(r=>String(r.Mes||'').padStart(2,'0')===mesSel) : yAtesTodosDoenca;
+  const cdAtesTodos = cdData.atestados || [];
+  const cdAtes = mesSel ? cdAtesTodos.filter(r=>r.mes===mesSel) : cdAtesTodos;
+
+  const totalAtes   = yAtes.length + cdAtes.length;
+  // CID psiquiátrico — apenas contagem, sem tooltip em Análises
+  const cidPsiY     = yAtes.filter(r=>/^f/i.test(String(r.CID||'').trim())).length;
+  const cidPsiCD    = cdAtes.filter(r=>/^f/i.test(String(r.cid||'').trim())).length;
+  const totalCidPsi = cidPsiY + cidPsiCD;
+  // Dias afastados — somente doença
+  const diasY  = yAtes.reduce((s,r)=>{
+    const v = Number(r.DiasAfastamento ?? r['DIAS DE AFASTAMENTO'] ?? 0);
+    return s + (isNaN(v)?0:v);
+  },0);
+  const diasCD = cdAtes.reduce((s,r)=>s+(Number(r.diasAfast)||0),0);
+  const totalDias = diasY + diasCD;
+
+  // Absenteísmo CD filtrado por mês
+  const absD = mesSel ? cdData.abs.filter(r=>r.mes===mesSel&&r.presencaPrevista>0) : cdData.abs.filter(r=>r.presencaPrevista>0);
+  const absPct = absD.length
+    ? (absD.reduce((s,r)=>s+(r.abs/r.presencaPrevista),0)/absD.length*100).toFixed(1)
+    : '—';
+
+  const setEl = (id, val) => { const e=document.getElementById(id); if(e) e.textContent=val; };
+  const setHTML = (id, val) => { const e=document.getElementById(id); if(e) e.innerHTML=val; };
+  setEl('anTotalAtes',  totalAtes);
+  setEl('anAtesSub',    `Y: ${yAtes.length} · CD: ${cdAtes.length}`);
+  setEl('anCidPsi',     totalCidPsi);
+  setEl('anCidPsiSub',  `Y: ${cidPsiY} · CD: ${cidPsiCD}`);
+  setEl('anDiasAfas',   totalDias);
+  setEl('anDiasAfasSub',`Y: ${diasY}d · CD: ${diasCD}d`);
+  setEl('anAbsPct',     absPct === '—' ? '—' : absPct+'%');
+  setEl('anAbsSub',     mesSel ? mesNome : 'média anual');
+
+  // Gráfico: Atestados por mês Yandeh vs CD
+  if(charts['chartAnalisesAtes']) charts['chartAnalisesAtes'].destroy();
+  const atesEl = document.getElementById('chartAnalisesAtes');
+  if(atesEl) {
+    const atesY  = MESES_L.map((_,i)=>{ const m=String(i+1).padStart(2,'0'); return yAtesTodos.filter(r=>r.Mes===m).length; });
+    const atesCD = MESES_L.map((_,i)=>{ const m=String(i+1).padStart(2,'0'); return (cdData.atestados||[]).filter(r=>r.mes===m).length; });
+    charts['chartAnalisesAtes'] = new Chart(atesEl, {
+      type:'bar',
+      data:{ labels:MESES_L, datasets:[
+        { label:'Yandeh', data:atesY,  backgroundColor:'rgba(26,86,160,.7)',  borderRadius:4 },
+        { label:'CD',     data:atesCD, backgroundColor:'rgba(192,57,43,.65)', borderRadius:4 },
+      ]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:true,position:'top',labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:11}}}, tooltip:tooltipOpts },
+        scales:{
+          x:{ticks:{color:t.tick,font:{size:10}},grid:{color:t.grid},border:{display:false}},
+          y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}},
+        },
+      },
+    });
+  }
+
+  // Gráfico: Motivos de desligamento consolidados (top 6)
+  if(charts['chartAnalisesMotivos']) charts['chartAnalisesMotivos'].destroy();
+  const motivosEl = document.getElementById('chartAnalisesMotivos');
+  if(motivosEl) {
+    const PAL = ['rgba(26,86,160,.75)','rgba(8,145,178,.75)','rgba(15,123,62,.75)','rgba(217,119,6,.75)','rgba(192,57,43,.75)','rgba(91,62,166,.75)'];
+    const motivoMap = {};
+    [...yOff,...cdOff].forEach(r=>{
+      const m = r.motivo||r.motivoSaida||'Não informado';
+      if(m) motivoMap[m]=(motivoMap[m]||0)+1;
+    });
+    const entries = Object.entries(motivoMap).sort((a,b)=>b[1]-a[1]).slice(0,6);
+    charts['chartAnalisesMotivos'] = new Chart(motivosEl, {
+      type:'bar',
+      data:{ labels:entries.map(e=>e[0]), datasets:[{
+        label:'Desligamentos',
+        data:entries.map(e=>e[1]),
+        backgroundColor:entries.map((_,i)=>PAL[i%PAL.length]),
+        borderRadius:5, borderSkipped:false,
+      }]},
+      options:{
+        indexAxis:'y',
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false}, tooltip:{...tooltipOpts,callbacks:{label:ctx=>{
+          const total=yOff.length+cdOff.length;
+          return `${ctx.parsed.x} deslig. (${total>0?(ctx.parsed.x/total*100).toFixed(1):0}%)`;
+        }}}},
+        scales:{
+          x:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}},
+          y:{ticks:{color:t.tick,font:{size:10}},grid:{color:t.grid},border:{display:false}},
+        },
+      },
+    });
+  }
+
+  // ── BLOCO 4: Conformidade & Pipeline ──
+
+  const yPcd  = cotasPcdData || [];
+  const yJa   = cotasJaData  || [];
+  const cdPcd = cdData.cotasPcd || [];
+  const cdJa  = cdData.cotasJa  || [];
+  const yRS   = rsData || [];
+  const cdRS  = cdData.rs || [];
+
+  // KPIs cotas — último mês com dados
+  const lastMes = m => m ? m[m.length-1] : null;
+  const yPcdLast  = mesSel ? yPcd.find(r=>r.mes===mesSel)  : lastMes(yPcd);
+  const yJaLast   = mesSel ? yJa.find(r=>r.mes===mesSel)   : lastMes(yJa);
+  const cdPcdLast = mesSel ? cdPcd.find(r=>r.mes===mesSel) : lastMes(cdPcd);
+  const cdJaLast  = mesSel ? cdJa.find(r=>r.mes===mesSel)  : lastMes(cdJa);
+
+  const fmtCota = r => r ? `${r.cotaAtual}` : '—';
+  const fmtCotaSub = r => {
+    if (!r) return 'sem dados';
+    const diff = (r.cotaAtual||0) - (r.cotaMin||0);
+    const cor  = diff >= 0 ? '#0f7b3e' : '#c0392b';
+    const icon = diff >= 0 ? '✓' : '⚠';
+    return `Mínimo: ${r.cotaMin?.toFixed(1)||'—'} &nbsp;<span style="color:${cor};font-weight:700">${icon} ${diff>=0?'+':''}${diff.toFixed(1)}</span>`;
+  };
+
+  setEl('anPcdY',    fmtCota(yPcdLast));
+  setHTML('anPcdYSub',  fmtCotaSub(yPcdLast));
+  setEl('anPcdCD',   fmtCota(cdPcdLast));
+  setHTML('anPcdCDSub', fmtCotaSub(cdPcdLast));
+  setEl('anJaY',     fmtCota(yJaLast));
+  setHTML('anJaYSub',   fmtCotaSub(yJaLast));
+  setEl('anJaCD',    fmtCota(cdJaLast));
+  setHTML('anJaCDSub',  fmtCotaSub(cdJaLast));
+
+  // KPIs R&S — Yandeh usa status (lowercase), sla; CD usa slaUteis
+  // mesFechamento na Yandeh é número (7), no CD é string ('07')
+  const yRSfilt  = mesSel ? yRS.filter(r=>String(r.mesFechamento||'').padStart(2,'0')===mesSel) : yRS;
+  const cdRSfilt = mesSel ? cdRS.filter(r=>r.mesFechamento===mesSel||r.mesAbertura===mesSel) : cdRS;
+
+  // Yandeh: status = 'Aberta'/'Fechada'/'Cancelada' (capitalizado); sla = r.sla (col 25)
+  // CD: status lowercase; slaUteis
+  const rsY_ab  = yRSfilt.filter(r=>String(r.status||'').toLowerCase().includes('aberta')||String(r.status||'').toLowerCase().includes('andamento')).length;
+  const rsCD_ab = cdRSfilt.filter(r=>/aberta|andamento|pipeline/i.test(r.status||'')).length;
+  const rsY_fe  = yRSfilt.filter(r=>String(r.status||'').toLowerCase().includes('fecha')).length;
+  const rsCD_fe = cdRSfilt.filter(r=>/fecha|contrat/i.test(r.status||'')).length;
+
+  const slaAllY  = yRS.filter(r=>Number(r.sla||0)>0);
+  const slaAllCD = cdRS.filter(r=>Number(r.slaUteis||0)>0);
+  const slaAll   = [...slaAllY,...slaAllCD];
+  const slaMedia = slaAll.length
+    ? (slaAllY.reduce((s,r)=>s+Number(r.sla||0),0)+slaAllCD.reduce((s,r)=>s+Number(r.slaUteis||0),0)) / slaAll.length
+    : null;
+  const slaMediaFmt = slaMedia !== null ? slaMedia.toFixed(1)+'d' : '—';
+
+  setEl('anVagasAbertas',    rsY_ab + rsCD_ab);
+  setEl('anVagasAbertasSub', `Y: ${rsY_ab} · CD: ${rsCD_ab}`);
+  setEl('anVagasFechadas',    rsY_fe + rsCD_fe);
+  setEl('anVagasFechadasSub',`Y: ${rsY_fe} · CD: ${rsCD_fe}`);
+  setEl('anSlaMedia', slaMediaFmt);
+
+  // Gráfico cotas PCD
+  if(charts['chartAnalisesCotas']) charts['chartAnalisesCotas'].destroy();
+  const cotasEl = document.getElementById('chartAnalisesCotas');
+  if(cotasEl) {
+    const pcdY_ser  = MESES_L.map((_,i)=>{ const m=String(i+1).padStart(2,'0'); return yPcd.find(r=>r.mes===m)?.cotaAtual??null; });
+    const pcdCD_ser = MESES_L.map((_,i)=>{ const m=String(i+1).padStart(2,'0'); return cdPcd.find(r=>r.mes===m)?.cotaAtual??null; });
+    const pcdYMin   = MESES_L.map((_,i)=>{ const m=String(i+1).padStart(2,'0'); return yPcd.find(r=>r.mes===m)?.cotaMin??null; });
+    charts['chartAnalisesCotas'] = new Chart(cotasEl, {
+      type:'line',
+      data:{ labels:MESES_L, datasets:[
+        { label:'Yandeh',    data:pcdY_ser,  borderColor:'#1a56a0', backgroundColor:'transparent', tension:.3, pointRadius:3, pointBackgroundColor:'#1a56a0', spanGaps:true },
+        { label:'CD',        data:pcdCD_ser, borderColor:'#0097a7', backgroundColor:'transparent', tension:.3, pointRadius:3, pointBackgroundColor:'#0097a7', spanGaps:true },
+        { label:'Mín (Y)',   data:pcdYMin,   borderColor:'#c0392b', backgroundColor:'transparent', tension:.3, pointRadius:2, borderDash:[5,3], spanGaps:true },
+      ]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:true,position:'top',labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:10}}}, tooltip:tooltipOpts },
+        scales:{ x:{ticks:{color:t.tick,font:{size:10}},grid:{color:t.grid},border:{display:false}}, y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11}},grid:{color:t.grid},border:{display:false}} },
+      },
+    });
+  }
+
+  // Gráfico cotas JA
+  if(charts['chartAnalisesJA']) charts['chartAnalisesJA'].destroy();
+  const jaEl = document.getElementById('chartAnalisesJA');
+  if(jaEl) {
+    const jaY_ser  = MESES_L.map((_,i)=>{ const m=String(i+1).padStart(2,'0'); return yJa.find(r=>r.mes===m)?.cotaAtual??null; });
+    const jaCD_ser = MESES_L.map((_,i)=>{ const m=String(i+1).padStart(2,'0'); return cdJa.find(r=>r.mes===m)?.cotaAtual??null; });
+    const jaYMin   = MESES_L.map((_,i)=>{ const m=String(i+1).padStart(2,'0'); return yJa.find(r=>r.mes===m)?.cotaMin??null; });
+    charts['chartAnalisesJA'] = new Chart(jaEl, {
+      type:'line',
+      data:{ labels:MESES_L, datasets:[
+        { label:'Yandeh',  data:jaY_ser,  borderColor:'#0f7b3e', backgroundColor:'transparent', tension:.3, pointRadius:3, pointBackgroundColor:'#0f7b3e', spanGaps:true },
+        { label:'CD',      data:jaCD_ser, borderColor:'#0097a7', backgroundColor:'transparent', tension:.3, pointRadius:3, pointBackgroundColor:'#0097a7', spanGaps:true },
+        { label:'Mín (Y)', data:jaYMin,   borderColor:'#c0392b', backgroundColor:'transparent', tension:.3, pointRadius:2, borderDash:[5,3], spanGaps:true },
+      ]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:true,position:'top',labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:10}}}, tooltip:tooltipOpts },
+        scales:{ x:{ticks:{color:t.tick,font:{size:10}},grid:{color:t.grid},border:{display:false}}, y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11}},grid:{color:t.grid},border:{display:false}} },
+      },
+    });
+  }
+
+  // Gráfico SLA por mês — Yandeh vs CD
+  if(charts['chartAnalisesRS']) charts['chartAnalisesRS'].destroy();
+  const rsEl = document.getElementById('chartAnalisesRS');
+  if(rsEl) {
+    const slaY  = MESES_L.map((_,i)=>{ const m=String(i+1).padStart(2,'0'); const mNum=i+1; const arr=yRS.filter(r=>Number(r.sla||0)>0&&Number(r.mesFechamento||0)===mNum); return arr.length?(arr.reduce((s,r)=>s+Number(r.sla||0),0)/arr.length).toFixed(1):null; });
+    const slaCD = MESES_L.map((_,i)=>{ const m=String(i+1).padStart(2,'0'); const arr=cdRS.filter(r=>Number(r.slaUteis||0)>0&&(r.mesAbertura===m||r.mesFechamento===m)); return arr.length?(arr.reduce((s,r)=>s+Number(r.slaUteis||0),0)/arr.length).toFixed(1):null; });
+    charts['chartAnalisesRS'] = new Chart(rsEl, {
+      type:'line',
+      data:{ labels:MESES_L, datasets:[
+        { label:'Yandeh', data:slaY,  borderColor:'#1a56a0', backgroundColor:'rgba(26,86,160,.06)', tension:.3, fill:true, pointRadius:4, pointBackgroundColor:'#1a56a0', spanGaps:true },
+        { label:'CD',     data:slaCD, borderColor:'#0097a7', backgroundColor:'transparent',          tension:.3, fill:false,pointRadius:4, pointBackgroundColor:'#0097a7', spanGaps:true },
+      ]},
+      options:{
+        responsive:true, maintainAspectRatio:true,
+        plugins:{ legend:{display:true,position:'top',labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:11}}}, tooltip:{...tooltipOpts,callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.parsed.y} dias úteis`}} },
+        scales:{
+          x:{ticks:{color:t.tick,font:{size:11}},grid:{color:t.grid},border:{display:false}},
+          y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},callback:v=>v+'d'},grid:{color:t.grid},border:{display:false}},
+        },
+      },
+    });
+  }
+
+  // ── BLOCO 5: Scorecard de Maturidade ──
+
+  // Calcula score 0-100 para cada dimensão por empresa
+  // Estabilidade: 100 - turnover%. Cap em 0.
+  const scoreEstabY  = Math.max(0, Math.min(100, 100 - parseFloat(mesSel?yTurnMes:yTurnAno)));
+  const scoreEstabCD = Math.max(0, Math.min(100, 100 - parseFloat(mesSel?cdTurnMes:cdTurnAno)));
+
+  // Saúde: 100 - (atestados/HC * 100). Cap em 0.
+  const atesRateY    = yHcVal>0 ? (yAtes.length/yHcVal*100) : 0;
+  const atesRateCD   = cdHcVal>0 ? (cdAtes.length/cdHcVal*100) : 0;
+  const scoreSaudeY  = Math.max(0, Math.min(100, 100 - atesRateY*5));
+  const scoreSaudeCD = Math.max(0, Math.min(100, 100 - atesRateCD*5));
+
+  // Crescimento: admissões / HC * 100. Cap 100.
+  const crescY  = Math.min(100, yHcVal>0 ? (yAdmTodos.length/yHcVal*100) : 0);
+  const crescCD = Math.min(100, cdHcVal>0 ? (cdAdmTodos.length/cdHcVal*100) : 0);
+
+  // Conformidade: média entre % PCD e % JA atingidas
+  const confScore = (pcdLast, jaLast) => {
+    if (!pcdLast && !jaLast) return 0;
+    const scores = [];
+    if(pcdLast && pcdLast.cotaMin>0) scores.push(Math.min(100, pcdLast.cotaAtual/pcdLast.cotaMin*100));
+    if(jaLast  && jaLast.cotaMin>0)  scores.push(Math.min(100, jaLast.cotaAtual/jaLast.cotaMin*100));
+    return scores.length ? scores.reduce((s,v)=>s+v,0)/scores.length : 0;
+  };
+  const scoreConfY  = confScore(yPcdLast,  yJaLast);
+  const scoreConfCD = confScore(cdPcdLast, cdJaLast);
+
+  // Índice geral (média das 4 dimensões)
+  const indiceY  = ((scoreEstabY +scoreSaudeY +crescY +scoreConfY) /4).toFixed(0);
+  const indiceCD = ((scoreEstabCD+scoreSaudeCD+crescCD+scoreConfCD)/4).toFixed(0);
+
+  const corIndice = v => v>=75?'#0f7b3e':v>=50?'#d97706':'#c0392b';
+  const labelIndice = v => v>=75?'Saudável':v>=50?'Em Atenção':'Em Risco';
+
+  // Atualiza scorecard
+  const scoreCardY  = document.getElementById('anScoreY');
+  const scoreCardCD = document.getElementById('anScoreCD');
+  if(scoreCardY)  scoreCardY.style.borderLeft  = `3px solid ${corIndice(+indiceY)}`;
+  if(scoreCardCD) scoreCardCD.style.borderLeft = `3px solid ${corIndice(+indiceCD)}`;
+
+  setEl('anIndiceY',   indiceY);
+  setEl('anLabelY',    labelIndice(+indiceY));
+  setHTML('anDetalheY',  `Estabilidade <b>${scoreEstabY.toFixed(0)}</b> &nbsp;·&nbsp; Saúde <b>${scoreSaudeY.toFixed(0)}</b> &nbsp;·&nbsp; Crescimento <b>${crescY.toFixed(0)}</b> &nbsp;·&nbsp; Conformidade <b>${scoreConfY.toFixed(0)}</b>`);
+  setEl('anIndiceCD',  indiceCD);
+  setEl('anLabelCD',   labelIndice(+indiceCD));
+  setHTML('anDetalheCD', `Estabilidade <b>${scoreEstabCD.toFixed(0)}</b> &nbsp;·&nbsp; Saúde <b>${scoreSaudeCD.toFixed(0)}</b> &nbsp;·&nbsp; Crescimento <b>${crescCD.toFixed(0)}</b> &nbsp;·&nbsp; Conformidade <b>${scoreConfCD.toFixed(0)}</b>`);
+
+  const indiceYEl  = document.getElementById('anIndiceY');
+  const indiceCDEl = document.getElementById('anIndiceCD');
+  const labelYEl   = document.getElementById('anLabelY');
+  const labelCDEl  = document.getElementById('anLabelCD');
+  if(indiceYEl)  indiceYEl.style.color  = corIndice(+indiceY);
+  if(indiceCDEl) indiceCDEl.style.color = corIndice(+indiceCD);
+  if(labelYEl)   labelYEl.style.color   = corIndice(+indiceY);
+  if(labelCDEl)  labelCDEl.style.color  = corIndice(+indiceCD);
+
+
+  // Renderiza radar
+  if(charts['chartAnalisesRadar']) charts['chartAnalisesRadar'].destroy();
+  const radarEl = document.getElementById('chartAnalisesRadar');
+  if(radarEl) {
+    const gridColor   = isDk ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.07)';
+    const angleColor  = isDk ? 'rgba(255,255,255,.15)' : 'rgba(0,0,0,.12)';
+    charts['chartAnalisesRadar'] = new Chart(radarEl, {
+      type: 'radar',
+      data: {
+        labels: ['Estabilidade', 'Saúde', 'Crescimento', 'Conformidade'],
+        datasets: [
+          {
+            label: 'Yandeh',
+            data:  [scoreEstabY, scoreSaudeY, crescY, scoreConfY],
+            borderColor: '#1a56a0',
+            backgroundColor: 'rgba(26,86,160,.15)',
+            pointBackgroundColor: '#1a56a0',
+            pointRadius: 5,
+            borderWidth: 2,
+          },
+          {
+            label: 'Girotrade CD',
+            data:  [scoreEstabCD, scoreSaudeCD, crescCD, scoreConfCD],
+            borderColor: '#0097a7',
+            backgroundColor: 'rgba(0,151,167,.12)',
+            pointBackgroundColor: '#0097a7',
+            pointRadius: 5,
+            borderWidth: 2,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display:true, position:'top', labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:11}} },
+          tooltip: { ...tooltipOpts, callbacks:{ label: ctx => `${ctx.dataset.label}: ${ctx.parsed.r.toFixed(0)}/100` } },
+        },
+        scales: {
+          r: {
+            min: 0, max: 100,
+            ticks: { display:false, stepSize:25 },
+            grid:        { color: gridColor },
+            angleLines:  { color: angleColor },
+            pointLabels: { color: t.tick, font:{ size:12, weight:'600' } },
+          },
+        },
+      },
+    });
+  }
+
+  }); // end requestAnimationFrame
+}
+
+function renderCDDashboard() {
+  const cdEl = document.getElementById('cd-dashboard');
+  if (!cdEl || !cdData.hasData) return;
+
+  // Limpa e esconde tudo
+  cdEl.innerHTML = '';
+  document.querySelectorAll('.category-section').forEach(s => {
+    s.classList.remove('active'); s.style.display = 'none';
+  });
+  document.querySelectorAll('.kpi-section').forEach(el => el.style.display = 'none');
+  cdEl.style.display = ''; cdEl.classList.add('active');
+
+  const mesSel   = document.getElementById('month-select')?.value || '';
+  const MESES_L  = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const t        = chartTheme();
+  const isDk     = isDark();
+  const fmtBRL   = v => Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0});
+  const LIDER    = ['ceo','diretor','head','gerente','coordenador','supervisor'];
+  const isLider  = d => LIDER.some(l => String(d.classificacao||'').toLowerCase().includes(l));
+
+  // Filtros — usa estado global para sobreviver ao re-render
+  const areasSel    = _cdAreaSel.includes('__none__') ? ['__none__'] : _cdAreaSel;
+  const gestoresSel = _cdGestorSel.includes('__none__') ? ['__none__'] : _cdGestorSel;
+  const ativos = cdData.ativos.filter(d =>
+    (areasSel.length === 0    || (!areasSel.includes('__none__') && areasSel.includes(d.area))) &&
+    (gestoresSel.length === 0 || (!gestoresSel.includes('__none__') && gestoresSel.includes(d.gestor)))
+  );
+
+  const hcMes  = mesSel ? cdData.headcount.find(h => h.mes === mesSel) : null;
+  const hcVal  = hcMes ? Math.round(hcMes.hc) : (cdData.headcount.length ? Math.round(cdData.headcount[cdData.headcount.length-1].hc) : ativos.length);
+  const admMes = mesSel ? (cdData.admissoes||[]).filter(a => a.mes === mesSel).length : (cdData.admissoes||[]).length;
+  const offMes = mesSel ? cdData.offboarding.filter(o => o.mes === mesSel).length : cdData.offboarding.length;
+
+  const folha      = ativos.reduce((s,d) => s + d.salario, 0);
+  // Período de experiência — calcula direto da data de admissão
+  const hoje = new Date();
+  hoje.setHours(0,0,0,0);
+  const diasDesdeAdm = d => {
+    if (!(d.dtAdm instanceof Date) || isNaN(d.dtAdm)) return null;
+    const adm = new Date(d.dtAdm); adm.setHours(0,0,0,0);
+    return Math.round((hoje - adm) / (1000*60*60*24));
+  };
+  const exp45List = ativos.filter(d => { const di = diasDesdeAdm(d); return di !== null && di >= 0 && di <= 45; });
+  const exp90List = ativos.filter(d => { const di = diasDesdeAdm(d); return di !== null && di >= 46 && di <= 90; });
+
+  // Tempo médio de casa
+  const comAdm = ativos.filter(d => d.dtAdm instanceof Date && !isNaN(d.dtAdm));
+  const tempoCasaMedia = comAdm.length
+    ? Math.round(comAdm.reduce((s,d) => s + (hoje - d.dtAdm) / (1000*60*60*24*365.25), 0) / comAdm.length * 10) / 10
+    : 0;
+  const fmtTempoCasa = anos => {
+    const a = Math.floor(anos), m = Math.round((anos - a) * 12);
+    return a > 0 ? `${a}a ${m}m` : `${m} meses`;
+  };
+  const diasCasa = d => diasDesdeAdm(d) ?? '—';
+  const lider      = ativos.filter(isLider).length;
+  const naoLider   = ativos.length - lider;
+
+  // Gênero pela coluna SEXO (K = index 10 → campo 'sexo' no objeto)
+  const sexMap = {};
+  ativos.forEach(d => {
+    const s = (d.sexo || d.genero || 'Não informado').trim();
+    sexMap[s] = (sexMap[s] || 0) + 1;
+  });
+
+  const areaMap = {}; ativos.forEach(d => { const a = d.area||'Não informado'; areaMap[a]=(areaMap[a]||0)+1; });
+  // Classificação — ordem customizada + stats salariais por nível
+  const CLAS_ORDER = ['diretor','supervisor','analista','assistente','auxiliar','aprendiz','jovem'];
+  const clasMap = {};
+  const clasSal = {}; // salários por classificação
+  ativos.forEach(d => {
+    const c = d.classificacao||'Não informado';
+    clasMap[c] = (clasMap[c]||0) + 1;
+    if (!clasSal[c]) clasSal[c] = [];
+    if (d.salario > 0) clasSal[c].push(d.salario);
+  });
+  const clasEntries = Object.entries(clasMap).sort((a, b) => {
+    const ai = CLAS_ORDER.findIndex(o => a[0].toLowerCase().includes(o));
+    const bi = CLAS_ORDER.findIndex(o => b[0].toLowerCase().includes(o));
+    if (ai === -1 && bi === -1) return b[1] - a[1];
+    if (ai === -1) return 1; if (bi === -1) return -1;
+    return ai - bi;
+  });
+  const areaEntries = Object.entries(areaMap).sort((a,b) => b[1]-a[1]);
+  const hcIniStr = hcMes ? `Início: ${hcMes.atvsIni} · Fim: ${hcMes.atvsFim}` : 'Média dos meses registrados';
+
+  const todasAreas    = [...new Set(cdData.ativos.map(d=>d.area).filter(Boolean))].sort();
+  const todosGestores = [...new Set(cdData.ativos.map(d=>d.gestor).filter(Boolean))].sort();
+
+  const makeChecklist = (cls, items, onchange, defaultLabel, labelId) => `
+    <div style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border)">
+      <button onclick="cdFilterAll('${cls}','${labelId}','${defaultLabel}')" style="font-size:10px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:none;color:var(--text-primary);cursor:pointer">Todas</button>
+      <button onclick="cdFilterClear('${cls}','${labelId}','${defaultLabel}')" style="font-size:10px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:none;color:var(--text-primary);cursor:pointer">Limpar</button>
+    </div>
+    <div style="padding:4px 0;max-height:180px;overflow-y:auto">
+      ${items.map(v => `<label style="display:flex;align-items:center;gap:8px;padding:5px 12px;cursor:pointer;font-size:11.5px;color:var(--text-primary)"><input type="checkbox" class="${cls}" value="${v.replace(/"/g,'&quot;')}" onchange="${onchange}"> ${v}</label>`).join('')}
+    </div>`;
+
+  cdEl.innerHTML = `
+    <!-- KPI cards -->
+    <div class="kpi-section" style="margin-bottom:16px;margin-top:-8px">
+      <div class="kpi-container" style="grid-template-columns:repeat(3,1fr)">
+        <div class="kpi-card kpi-blue">
+          <div class="kpi-icon-wrap kpi-icon-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
+          <div class="kpi-content"><div class="kpi-label">TOTAL DE COLABORADORES</div><div class="kpi-value">${hcVal}</div><div class="kpi-sub">${hcIniStr}</div></div>
+        </div>
+        <div class="kpi-card kpi-green">
+          <div class="kpi-icon-wrap kpi-icon-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div>
+          <div class="kpi-content"><div class="kpi-label">ADMISSÕES</div><div class="kpi-value">${admMes}</div><div class="kpi-sub">${mesSel ? MESES_L[parseInt(mesSel)-1] : 'Acumulado'}</div></div>
+        </div>
+        <div class="kpi-card kpi-orange">
+          <div class="kpi-icon-wrap kpi-icon-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg></div>
+          <div class="kpi-content"><div class="kpi-label">DEMISSÕES</div><div class="kpi-value">${offMes}</div><div class="kpi-sub">${mesSel ? MESES_L[parseInt(mesSel)-1] : 'Acumulado'}</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Gráfico evolução: HC linha, Admissões e Demissões colunas -->
+    <div class="chart-card" style="margin-bottom:14px">
+      <div class="chart-title">Evolução — Headcount, Admissões e Demissões</div>
+      <canvas id="chartCDHC" height="100"></canvas>
+    </div>
+
+    <!-- Filtros abaixo do gráfico -->
+    <div class="ativos-filter-bar" style="margin-bottom:14px">
+      <div class="rs-filter-group">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+        <label class="rs-filter-label">Área</label>
+        <div style="position:relative">
+          <button id="cdAreaBtn" onclick="document.getElementById('cdAreaDrop').classList.toggle('open')" class="rs-filter-select" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:140px">
+            <span id="cdAreaLabel">Todas</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="cdAreaDrop" class="clima-filter-dropdown" style="min-width:200px;z-index:999">
+            ${makeChecklist('cdAreaCheck', todasAreas, "cdFilterUpdate('cdAreaCheck','cdAreaLabel','Todas');renderCDDashboard()", 'Todas', 'cdAreaLabel')}
+          </div>
+        </div>
+      </div>
+      <div class="rs-filter-group">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <label class="rs-filter-label">Gestor</label>
+        <div style="position:relative">
+          <button id="cdGestorBtn" onclick="document.getElementById('cdGestorDrop').classList.toggle('open')" class="rs-filter-select" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:140px">
+            <span id="cdGestorLabel">Todos</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="cdGestorDrop" class="clima-filter-dropdown" style="min-width:200px;z-index:999">
+            ${makeChecklist('cdGestorCheck', todosGestores, "cdFilterUpdate('cdGestorCheck','cdGestorLabel','Todos');renderCDDashboard()", 'Todos', 'cdGestorLabel')}
+          </div>
+        </div>
+      </div>
+      <button class="rs-filter-clear" onclick="cdFilterAll('cdAreaCheck','cdAreaLabel','Todas');cdFilterAll('cdGestorCheck','cdGestorLabel','Todos')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        Limpar filtros
+      </button>
+    </div>
+
+    <!-- Cards folha + exp + tempo de casa (largura total, 4 colunas) -->
+    <div class="ativos-kpi-row" style="margin-bottom:16px;grid-template-columns:repeat(4,1fr)">
+      <div class="ativos-kpi-card ativos-kpi-green">
+        <div class="ativos-kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg></div>
+        <div class="ativos-kpi-body"><div class="ativos-kpi-label">Folha de Pagamento</div><div class="ativos-kpi-value">${fmtBRL(folha)}</div><div class="ativos-kpi-sub">${ativos.length} colaboradores</div></div>
+      </div>
+      <div class="ativos-kpi-card ativos-kpi-blue">
+        <div class="ativos-kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+        <div class="ativos-kpi-body"><div class="ativos-kpi-label">Tempo Médio de Casa</div><div class="ativos-kpi-value">${fmtTempoCasa(tempoCasaMedia)}</div><div class="ativos-kpi-sub">${comAdm.length} com data de admissão</div></div>
+      </div>
+      <div class="ativos-kpi-card ativos-kpi-amber">
+        <div class="ativos-kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+        <div class="ativos-kpi-body"><div class="ativos-kpi-label">Exp. até 45 dias</div><div class="ativos-kpi-value">${exp45List.length}</div><button class="exp-list-btn" onclick="openCDExpModal('45')">Ver colaboradores</button></div>
+      </div>
+      <div class="ativos-kpi-card ativos-kpi-orange">
+        <div class="ativos-kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 16l2 2 4-4"/></svg></div>
+        <div class="ativos-kpi-body"><div class="ativos-kpi-label">Exp. 45 a 90 dias</div><div class="ativos-kpi-value">${exp90List.length}</div><button class="exp-list-btn" onclick="openCDExpModal('90')">Ver colaboradores</button></div>
+      </div>
+    </div>
+
+    <!-- Gráficos linha 1 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+      <div class="chart-card" style="height:280px"><div class="chart-title">Liderança vs Não Liderança</div><div style="height:220px;position:relative"><canvas id="chartCDLider"></canvas></div></div>
+      <div class="chart-card" style="height:280px"><div class="chart-title">Nível / Classificação</div><div style="height:220px;position:relative"><canvas id="chartCDClas"></canvas></div></div>
+    </div>
+
+    <!-- Gráficos linha 2 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="chart-card" style="height:280px"><div class="chart-title">Distribuição por Sexo</div><div style="height:220px;position:relative"><canvas id="chartCDGenero"></canvas></div></div>
+      <div class="chart-card" style="height:280px"><div class="chart-title">Colaboradores por Área</div><div style="height:220px;position:relative"><canvas id="chartCDArea"></canvas></div></div>
+    </div>`;
+
+  window._cdExp45List = exp45List;
+  window._cdExp90List = exp90List;
+
+  // Marca checkboxes conforme estado global
+  document.querySelectorAll('.cdAreaCheck').forEach(c => {
+    c.checked = _cdAreaSel.length === 0 || _cdAreaSel.includes(c.value);
+  });
+  document.querySelectorAll('.cdGestorCheck').forEach(c => {
+    c.checked = _cdGestorSel.length === 0 || _cdGestorSel.includes(c.value);
+  });
+  // Atualiza labels
+  const aLbl = document.getElementById('cdAreaLabel');
+  const gLbl = document.getElementById('cdGestorLabel');
+  const aTot = document.querySelectorAll('.cdAreaCheck').length;
+  const gTot = document.querySelectorAll('.cdGestorCheck').length;
+  if (aLbl) aLbl.textContent = (!_cdAreaSel.length || _cdAreaSel.length === aTot) ? 'Todas' : `${_cdAreaSel.length} selecionada${_cdAreaSel.length>1?'s':''}`;
+  if (gLbl) gLbl.textContent = (!_cdGestorSel.length || _cdGestorSel.length === gTot) ? 'Todos' : `${_cdGestorSel.length} selecionado${_cdGestorSel.length>1?'s':''}`;
+
+  if (!window._cdDropOutside) {
+    window._cdDropOutside = true;
+    document.addEventListener('click', e => {
+      ['cdAreaDrop','cdGestorDrop'].forEach(id => {
+        const dd=document.getElementById(id), btn=document.getElementById(id.replace('Drop','Btn'));
+        if(dd && !dd.contains(e.target) && !btn?.contains(e.target)) dd.classList.remove('open');
+      });
+    });
+  }
+
+  const tooltipOpts = {backgroundColor:t.bg,titleColor:t.text,bodyColor:t.tick,borderWidth:1,borderColor:isDk?'rgba(255,255,255,.1)':'rgba(0,0,0,.08)',padding:10};
+  const donutLegend = {position:'right',labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:11},padding:10}};
+  const PAL_DONUT   = ['#0078d4','#b4a0ff','#107c10','#ff8c00','#e81123','#00b7c3'];
+  const PAL_BAR     = ['#553c9a','#0078d4','#107c10','#ff8c00','#e81123','#0097a7','#7030a0','#e65c00','#d83b81','#4a5568'];
+
+  // HC line + Adm/Dem colunas (mixed chart)
+  if(charts['chartCDHC']) charts['chartCDHC'].destroy();
+  const hcEl = document.getElementById('chartCDHC');
+  if(hcEl) {
+    const hcSer  = MESES_L.map((_,i)=>{const m=String(i+1).padStart(2,'0');const h=cdData.headcount.find(d=>d.mes===m);return h?h.hc:null;});
+    const admSer = MESES_L.map((_,i)=>{const m=String(i+1).padStart(2,'0');return(cdData.admissoes||[]).filter(a=>a.mes===m).length||0;});
+    const offSer = MESES_L.map((_,i)=>{const m=String(i+1).padStart(2,'0');return cdData.offboarding.filter(o=>o.mes===m).length||0;});
+    charts['chartCDHC'] = new Chart(hcEl, {
+      type: 'bar',
+      data: {
+        labels: MESES_L,
+        datasets: [
+          { label:'Headcount', data:hcSer, type:'line', borderColor:'#0078d4', backgroundColor:'rgba(0,120,212,.08)', tension:.3, fill:true, spanGaps:true, pointRadius:4, pointBackgroundColor:'#0078d4', yAxisID:'y', order:1 },
+          { label:'Admissões', data:admSer, type:'bar', backgroundColor:isDk?'rgba(16,124,16,.75)':'rgba(16,124,16,.7)', borderRadius:4, yAxisID:'y2', order:2 },
+          { label:'Demissões', data:offSer, type:'bar', backgroundColor:isDk?'rgba(232,17,35,.75)':'rgba(232,17,35,.7)', borderRadius:4, yAxisID:'y2', order:2 },
+        ]
+      },
+      options: {
+        responsive:true, maintainAspectRatio:true,
+        plugins:{ legend:{display:true,position:'top',labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:11}}}, tooltip:tooltipOpts },
+        scales:{
+          x:{ ticks:{color:t.tick,font:{size:11}}, grid:{color:t.grid}, border:{display:false} },
+          y:{ position:'left', beginAtZero:false, ticks:{color:t.tick,font:{size:11}}, grid:{color:t.grid}, border:{display:false}, title:{display:true,text:'Headcount',color:t.tick,font:{size:10}} },
+          y2:{ position:'right', beginAtZero:true, ticks:{color:t.tick,font:{size:11},stepSize:1}, grid:{drawOnChartArea:false}, border:{display:false}, title:{display:true,text:'Adm / Dem',color:t.tick,font:{size:10}} }
+        }
+      }
+    });
+  }
+
+  // Liderança donut
+  if(charts['chartCDLider']) charts['chartCDLider'].destroy();
+  const liderEl=document.getElementById('chartCDLider');
+  if(liderEl) charts['chartCDLider']=new Chart(liderEl,{type:'doughnut',data:{labels:['Liderança','Não-Liderança'],datasets:[{data:[lider,naoLider],backgroundColor:['#b4a0ff','#0078d4'],borderWidth:2,borderColor:isDk?'#1e2b3a':'#fff'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:donutLegend,tooltip:{...tooltipOpts,callbacks:{label:ctx=>`${ctx.label}: ${ctx.parsed} (${ativos.length?(ctx.parsed/ativos.length*100).toFixed(1):0}%)`}}}}});
+
+  // Classificação bar
+  if(charts['chartCDClas']) charts['chartCDClas'].destroy();
+  const clasEl=document.getElementById('chartCDClas');
+  if(clasEl) charts['chartCDClas']=new Chart(clasEl,{
+    type:'bar',
+    data:{
+      labels:clasEntries.map(e=>e[0]),
+      datasets:[{
+        label:'Colaboradores',
+        data:clasEntries.map(e=>e[1]),
+        backgroundColor:clasEntries.map((_,i)=>PAL_BAR[i%PAL_BAR.length]),
+        borderRadius:5,borderSkipped:false
+      }]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          ...tooltipOpts,
+          callbacks:{
+            label: ctx => {
+              const clas = clasEntries[ctx.dataIndex][0];
+              const sals = clasSal[clas] || [];
+              const n    = ctx.parsed.y;
+              if (!sals.length) return `Colaboradores: ${n}`;
+              const min  = Math.min(...sals);
+              const max  = Math.max(...sals);
+              const avg  = sals.reduce((s,v)=>s+v,0)/sals.length;
+              const fmt  = v => v.toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0});
+              return [
+                `Colaboradores: ${n}`,
+                `Mín: ${fmt(min)}`,
+                `Média: ${fmt(avg)}`,
+                `Máx: ${fmt(max)}`,
+              ];
+            }
+          }
+        }
+      },
+      scales:{
+        x:{ticks:{color:t.tick,font:{size:10},maxRotation:35},grid:{color:t.grid},border:{display:false}},
+        y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}}
+      }
+    }
+  });
+
+  // Sexo donut
+  if(charts['chartCDGenero']) charts['chartCDGenero'].destroy();
+  const genEl=document.getElementById('chartCDGenero');
+  const sexLabels=Object.keys(sexMap), sexVals=Object.values(sexMap);
+  if(genEl) charts['chartCDGenero']=new Chart(genEl,{type:'doughnut',data:{labels:sexLabels,datasets:[{data:sexVals,backgroundColor:PAL_DONUT.slice(0,sexLabels.length),borderWidth:2,borderColor:isDk?'#1e2b3a':'#fff'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:donutLegend,tooltip:{...tooltipOpts,callbacks:{label:ctx=>`${ctx.label}: ${ctx.parsed} (${ativos.length?(ctx.parsed/ativos.length*100).toFixed(1):0}%)`}}}}});
+
+  // Área bar horizontal
+  if(charts['chartCDArea']) charts['chartCDArea'].destroy();
+  const areaEl=document.getElementById('chartCDArea');
+  if(areaEl) charts['chartCDArea']=new Chart(areaEl,{type:'bar',data:{labels:areaEntries.map(e=>e[0]),datasets:[{label:'Colaboradores',data:areaEntries.map(e=>e[1]),backgroundColor:'rgba(0,120,212,.75)',borderRadius:4}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tooltipOpts},scales:{x:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}},y:{ticks:{color:t.tick,font:{size:10}},grid:{color:t.grid},border:{display:false}}}}});
+}
+
+
+function openCDExpModal(tipo) {
+  const lista = tipo==='45' ? (window._cdExp45List||[]) : (window._cdExp90List||[]);
+  const titulo = tipo==='45' ? 'Colaboradores — Exp. até 45 dias' : 'Colaboradores — Exp. 45 a 90 dias';
+  const title=document.getElementById('expModalTitle'), body=document.getElementById('expModalBody'), overlay=document.getElementById('expModalOverlay');
+  if(!title||!body||!overlay) return;
+  title.textContent = `${titulo} — ${lista.length} colaboradores`;
+  const fmtDt = dt => dt instanceof Date ? `${String(dt.getUTCDate()).padStart(2,'0')}/${String(dt.getUTCMonth()+1).padStart(2,'0')}/${dt.getUTCFullYear()}` : '—';
+  const hoje = new Date();
+  const diasCasa = d => d.dtAdm instanceof Date ? Math.round((hoje - d.dtAdm) / (1000*60*60*24)) : (d.diasExp || '—');
+  body.innerHTML = lista.length ? `
+    <table class="exp-list-table">
+      <thead><tr><th>Nome</th><th>Área</th><th>Cargo</th><th>Dias de Casa</th><th>Admissão</th></tr></thead>
+      <tbody>${[...lista].sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR')).map(d=>`
+        <tr>
+          <td>${d.nome}</td>
+          <td>${d.area||'—'}</td>
+          <td>${d.cargo||'—'}</td>
+          <td>${diasCasa(d)}</td>
+          <td>${fmtDt(d.dtAdm)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>` : '<div style="padding:16px;color:var(--text-secondary)">Nenhum colaborador neste período.</div>';
+  overlay.classList.add('active');
+  document.body.style.overflow='hidden';
+}
+
+
+// Estado global dos filtros CD
+let _cdAreaSel    = [];
+let _cdGestorSel  = [];
+
+function cdFilterAll(checkClass, labelId, defaultLabel) {
+  if (checkClass === 'cdAreaCheck')   _cdAreaSel   = [];
+  if (checkClass === 'cdGestorCheck') _cdGestorSel = [];
+  const lbl = document.getElementById(labelId); if(lbl) lbl.textContent = defaultLabel;
+  renderCDDashboard();
+}
+function cdFilterClear(checkClass, labelId, defaultLabel) {
+  if (checkClass === 'cdAreaCheck')   _cdAreaSel   = ['__none__'];
+  if (checkClass === 'cdGestorCheck') _cdGestorSel = ['__none__'];
+  const lbl = document.getElementById(labelId); if(lbl) lbl.textContent = defaultLabel;
+  renderCDDashboard();
+}
+function cdFilterUpdate(checkClass, labelId, defaultLabel) {
+  const checked = [...document.querySelectorAll('.'+checkClass+':checked')].map(c => c.value);
+  const total   = document.querySelectorAll('.'+checkClass).length;
+  if (checkClass === 'cdAreaCheck')   _cdAreaSel   = checked;
+  if (checkClass === 'cdGestorCheck') _cdGestorSel = checked;
+  const lbl = document.getElementById(labelId); if(!lbl) return;
+  lbl.textContent = (!checked.length || checked.length === total) ? defaultLabel : `${checked.length} selecionado${checked.length>1?'s':''}`;
+}
+
+function renderCDRecrutamento(el, mesSel) {
+  const rs = cdData.rs || [];
+
+  // Cria modal no body se não existir
+  if (!document.getElementById('cdRsModal')) {
+    const m = document.createElement('div');
+    m.id = 'cdRsModal';
+    m.style.cssText = 'display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);align-items:center;justify-content:center';
+    m.innerHTML = `<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:24px 28px;min-width:640px;max-width:860px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.3)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div id="cdRsModalTitle" style="font-size:15px;font-weight:700;color:var(--text-primary)"></div>
+        <button onclick="document.getElementById('cdRsModal').style.display='none';document.body.style.overflow=''" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:20px;padding:2px 8px">&times;</button>
+      </div>
+      <div id="cdRsModalBody"></div>
+    </div>`;
+    document.body.appendChild(m);
+  }
+
+  if (!rs.length) {
+    el.innerHTML = '<div class="empty-state"><p>Sem dados de R&amp;S na planilha CD.<br>Verifique se a aba "R&amp;S" está preenchida.</p></div>';
+    return;
+  }
+
+  // Filtros
+  const areasSel   = window._cdRsAreaSel   || [];
+  const gestoresSel= window._cdRsGestorSel || [];
+  const filtered = rs.filter(d =>
+    (areasSel.length===0    || areasSel.includes(d.area)) &&
+    (gestoresSel.length===0 || gestoresSel.includes(d.gestor))
+  );
+  const D = mesSel ? filtered.filter(r=>r.mesFechamento===mesSel||r.mesAbertura===mesSel) : filtered;
+
+  const abertas    = filtered.filter(r => /aberta|em andamento|pipeline/i.test(r.status));
+  const fechadas   = filtered.filter(r => /fecha|contrat/i.test(r.status));
+  const canceladas = filtered.filter(r => /cancel/i.test(r.status));
+  const declinios  = filtered.filter(r => r.declinio);
+  const trabalhadas= filtered.filter(r => !/pipeline/i.test(r.status));
+
+  const comSla = D.filter(r=>r.slaUteis>0);
+  const slaMedio = comSla.length ? (comSla.reduce((s,r)=>s+r.slaUteis,0)/comSla.length).toFixed(1) : '—';
+  const comTTF = D.filter(r=>r.timeToFill>0);
+  const comTTS = D.filter(r=>r.timeToStart>0);
+  const ttfMedio = comTTF.length ? (comTTF.reduce((s,r)=>s+r.timeToFill,0)/comTTF.length).toFixed(1) : '—';
+  const ttsMedio = comTTS.length ? (comTTS.reduce((s,r)=>s+r.timeToStart,0)/comTTS.length).toFixed(1) : '—';
+  const fonteMap = {}; filtered.filter(r=>r.fonte).forEach(r=>{fonteMap[r.fonte]=(fonteMap[r.fonte]||0)+1;});
+  const fonteTop = Object.entries(fonteMap).sort((a,b)=>b[1]-a[1]);
+  const principalFonte = fonteTop[0]?.[0]||'—';
+  const fontePct = filtered.length ? ((fonteTop[0]?.[1]||0)/filtered.length*100).toFixed(0) : 0;
+
+  window._cdRsLists = {abertas, fechadas, trabalhadas, declinios};
+
+  const MESES_L = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const t   = chartTheme();
+  const isDk= isDark();
+  const PAL = ['#0078d4','#b4a0ff','#107c10','#ff8c00','#e81123','#00b7c3','#7030a0','#d83b81'];
+  const tooltipOpts = {backgroundColor:t.bg,titleColor:t.text,bodyColor:t.tick,borderWidth:1,borderColor:isDk?'rgba(255,255,255,.1)':'rgba(0,0,0,.08)',padding:10};
+
+  const todasAreas    = [...new Set(rs.map(d=>d.area).filter(Boolean))].sort();
+  const todosGestores = [...new Set(rs.map(d=>d.gestor).filter(Boolean))].sort();
+
+  const makeChecklist = (cls, items, onchange, defaultLabel, labelId) => `
+    <div style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border)">
+      <button onclick="cdRsFilterAll('${cls}','${labelId}','${defaultLabel}')" style="font-size:10px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:none;color:var(--text-primary);cursor:pointer">Todos</button>
+      <button onclick="cdRsFilterClear('${cls}','${labelId}','${defaultLabel}')" style="font-size:10px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:none;color:var(--text-primary);cursor:pointer">Limpar</button>
+    </div>
+    <div style="padding:4px 0;max-height:180px;overflow-y:auto">
+      ${items.map(v=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 12px;cursor:pointer;font-size:11.5px;color:var(--text-primary)"><input type="checkbox" class="${cls}" value="${v.replace(/"/g,'&quot;')}" onchange="${onchange}"> ${v}</label>`).join('')}
+    </div>`;
+
+  el.innerHTML = `
+    <!-- Cards principais -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px">
+      <div class="kpi-card kpi-blue" style="flex-direction:column;gap:6px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="kpi-icon-wrap kpi-icon-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg></div>
+          <div class="kpi-content"><div class="kpi-label">VAGAS ABERTAS</div><div class="kpi-value">${abertas.length}</div></div>
+        </div>
+        <button class="exp-list-btn" style="align-self:flex-start" onclick="openCDRsModal('abertas')">Ver vagas</button>
+      </div>
+      <div class="kpi-card kpi-green" style="flex-direction:column;gap:6px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="kpi-icon-wrap kpi-icon-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="kpi-content"><div class="kpi-label">VAGAS FECHADAS</div><div class="kpi-value">${fechadas.length}</div></div>
+        </div>
+        <button class="exp-list-btn" style="align-self:flex-start" onclick="openCDRsModal('fechadas')">Ver vagas</button>
+      </div>
+      <div class="kpi-card" style="border-top:3px solid #0097a7;flex-direction:column;gap:6px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="kpi-icon-wrap" style="background:rgba(0,151,167,.12)"><svg viewBox="0 0 24 24" fill="none" stroke="#0097a7" stroke-width="2" width="20" height="20"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+          <div class="kpi-content"><div class="kpi-label" style="color:#0097a7">VAGAS TRABALHADAS</div><div class="kpi-value" style="color:#0097a7">${trabalhadas.length}</div></div>
+        </div>
+        <button class="exp-list-btn" style="align-self:flex-start" onclick="openCDRsModal('trabalhadas')">Ver vagas</button>
+      </div>
+      <div class="kpi-card kpi-orange" style="flex-direction:column;gap:6px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="kpi-icon-wrap kpi-icon-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>
+          <div class="kpi-content"><div class="kpi-label">DECLÍNIOS</div><div class="kpi-value">${declinios.length}</div></div>
+        </div>
+        <button class="exp-list-btn" style="align-self:flex-start" onclick="openCDRsModal('declinios')">Ver vagas</button>
+      </div>
+    </div>
+
+    <!-- Cards subprincipais -->
+    <div class="ativos-kpi-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:14px">
+      <div class="ativos-kpi-card ativos-kpi-blue"><div class="ativos-kpi-body"><div class="ativos-kpi-label">SLA Médio</div><div class="ativos-kpi-value">${slaMedio} <span style="font-size:11px;font-weight:400">d.u.</span></div></div></div>
+      <div class="ativos-kpi-card ativos-kpi-amber"><div class="ativos-kpi-body"><div class="ativos-kpi-label">Canceladas</div><div class="ativos-kpi-value">${canceladas.length}</div></div></div>
+      <div class="ativos-kpi-card ativos-kpi-green"><div class="ativos-kpi-body"><div class="ativos-kpi-label">Time to Start</div><div class="ativos-kpi-value">${ttsMedio} <span style="font-size:11px;font-weight:400">d.u.</span></div></div></div>
+      <div class="ativos-kpi-card" style="border-left:3px solid #0097a7"><div class="ativos-kpi-body"><div class="ativos-kpi-label">Time to Fill</div><div class="ativos-kpi-value">${ttfMedio} <span style="font-size:11px;font-weight:400">d.u.</span></div></div></div>
+      <div class="ativos-kpi-card ativos-kpi-orange"><div class="ativos-kpi-body"><div class="ativos-kpi-label">Principal Fonte</div><div class="ativos-kpi-value" style="font-size:13px">${principalFonte}</div><div class="ativos-kpi-sub">${fontePct}% das contratações</div></div></div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="ativos-filter-bar" style="margin-bottom:14px">
+      <div class="rs-filter-group">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+        <label class="rs-filter-label">Área</label>
+        <div style="position:relative">
+          <button id="cdRsAreaBtn" onclick="document.getElementById('cdRsAreaDrop').classList.toggle('open')" class="rs-filter-select" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:140px">
+            <span id="cdRsAreaLabel">Todas</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="cdRsAreaDrop" class="clima-filter-dropdown" style="min-width:200px;z-index:999">
+            ${makeChecklist('cdRsAreaCheck',todasAreas,"cdRsFilterUpdate('cdRsAreaCheck','cdRsAreaLabel','Todas');renderCDRecrutamento(document.getElementById('cd-recrutamento'),document.getElementById('month-select')?.value||'')",'Todas','cdRsAreaLabel')}
+          </div>
+        </div>
+      </div>
+      <div class="rs-filter-group">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <label class="rs-filter-label">Gestor</label>
+        <div style="position:relative">
+          <button id="cdRsGestorBtn" onclick="document.getElementById('cdRsGestorDrop').classList.toggle('open')" class="rs-filter-select" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:140px">
+            <span id="cdRsGestorLabel">Todos</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="cdRsGestorDrop" class="clima-filter-dropdown" style="min-width:200px;z-index:999">
+            ${makeChecklist('cdRsGestorCheck',todosGestores,"cdRsFilterUpdate('cdRsGestorCheck','cdRsGestorLabel','Todos');renderCDRecrutamento(document.getElementById('cd-recrutamento'),document.getElementById('month-select')?.value||'')",'Todos','cdRsGestorLabel')}
+          </div>
+        </div>
+      </div>
+      <button class="rs-filter-clear" onclick="cdRsFilterAll('cdRsAreaCheck','cdRsAreaLabel','Todas');cdRsFilterAll('cdRsGestorCheck','cdRsGestorLabel','Todos')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        Limpar filtros
+      </button>
+    </div>
+
+    <!-- Gráfico 1: Abertas vs Fechadas por mês -->
+    <div class="chart-card" style="margin-bottom:14px">
+      <div class="chart-title">Vagas Abertas vs Fechadas por Mês — 2026</div>
+      <canvas id="chartCDRsAF" height="80"></canvas>
+    </div>
+
+    <!-- Gráficos 2: Status (rosca 1/3) + Nível (2/3) -->
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:14px;margin-bottom:14px">
+      <div class="chart-card" style="height:280px">
+        <div class="chart-title">Status por Vaga</div>
+        <div style="height:220px;position:relative"><canvas id="chartCDRsStatus"></canvas></div>
+      </div>
+      <div class="chart-card" style="height:280px">
+        <div class="chart-title">Distribuição por Nível</div>
+        <div style="height:220px;position:relative"><canvas id="chartCDRsNivel"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Gráfico 3: Fontes por mês -->
+    <div class="chart-card">
+      <div class="chart-title">Fontes de Contratação por Mês</div>
+      <canvas id="chartCDRsFonte" height="90"></canvas>
+    </div>`;
+
+  // Restaura seleções dos filtros
+  if (areasSel.length) { document.querySelectorAll('.cdRsAreaCheck').forEach(c=>{if(areasSel.includes(c.value))c.checked=true;}); cdRsFilterUpdate('cdRsAreaCheck','cdRsAreaLabel','Todas'); }
+  if (gestoresSel.length) { document.querySelectorAll('.cdRsGestorCheck').forEach(c=>{if(gestoresSel.includes(c.value))c.checked=true;}); cdRsFilterUpdate('cdRsGestorCheck','cdRsGestorLabel','Todos'); }
+
+  // Fecha dropdowns ao clicar fora
+  if (!window._cdRsDrop) {
+    window._cdRsDrop = true;
+    document.addEventListener('click', e => {
+      ['cdRsAreaDrop','cdRsGestorDrop'].forEach(id => {
+        const dd=document.getElementById(id), btn=document.getElementById(id.replace('Drop','Btn'));
+        if(dd&&!dd.contains(e.target)&&!btn?.contains(e.target)) dd.classList.remove('open');
+      });
+    });
+  }
+
+  // Chart 1: Abertas vs Fechadas por mês
+  if(charts['chartCDRsAF']) charts['chartCDRsAF'].destroy();
+  const afEl = document.getElementById('chartCDRsAF');
+  if(afEl) {
+    const abSer = MESES_L.map((_,i)=>{ const m=String(i+1).padStart(2,'0'); return filtered.filter(r=>r.mesAbertura===m&&/aberta|andamento/i.test(r.status)).length; });
+    const feSer = MESES_L.map((_,i)=>{ const m=String(i+1).padStart(2,'0'); return filtered.filter(r=>r.mesFechamento===m&&/fecha|contrat/i.test(r.status)).length; });
+    charts['chartCDRsAF'] = new Chart(afEl, {
+      type:'line', data:{labels:MESES_L, datasets:[
+        {label:'Vagas Abertas', data:abSer, borderColor:'#0078d4', backgroundColor:'rgba(0,120,212,.08)', tension:.3, fill:true, pointRadius:4, pointBackgroundColor:'#0078d4'},
+        {label:'Vagas Fechadas',data:feSer, borderColor:'#107c10', backgroundColor:'transparent',         tension:.3, fill:false,pointRadius:4, pointBackgroundColor:'#107c10'},
+      ]},
+      options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{display:true,position:'top',labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:11}}},tooltip:tooltipOpts},scales:{x:{ticks:{color:t.tick,font:{size:11}},grid:{color:t.grid},border:{display:false}},y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}}}}
+    });
+  }
+
+  // Chart 2: Status rosca
+  if(charts['chartCDRsStatus']) charts['chartCDRsStatus'].destroy();
+  const statusEl = document.getElementById('chartCDRsStatus');
+  if(statusEl) {
+    const stMap = {}; filtered.forEach(r=>{const s=r.status||'Não informado';stMap[s]=(stMap[s]||0)+1;});
+    const stEntries = Object.entries(stMap).sort((a,b)=>b[1]-a[1]);
+    charts['chartCDRsStatus'] = new Chart(statusEl, {
+      type:'doughnut', data:{labels:stEntries.map(e=>e[0]),datasets:[{data:stEntries.map(e=>e[1]),backgroundColor:PAL.slice(0,stEntries.length),borderWidth:2,borderColor:isDk?'#1e2b3a':'#fff'}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:10},padding:8}},tooltip:{...tooltipOpts,callbacks:{label:ctx=>`${ctx.label}: ${ctx.parsed} (${(ctx.parsed/filtered.length*100).toFixed(1)}%)`}}}}
+    });
+  }
+
+  // Chart 3: Nível barras com tooltip salário
+  if(charts['chartCDRsNivel']) charts['chartCDRsNivel'].destroy();
+  const nivelEl = document.getElementById('chartCDRsNivel');
+  if(nivelEl) {
+    const nivMap = {}; const nivSal = {};
+    filtered.forEach(r=>{
+      const n=r.nivel||'Não informado';
+      nivMap[n]=(nivMap[n]||0)+1;
+      if(!nivSal[n]) nivSal[n]=[];
+      if(r.salario>0) nivSal[n].push(r.salario);
+    });
+    const nivEntries = Object.entries(nivMap).sort((a,b)=>b[1]-a[1]);
+    const fmtBRL = v => Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0});
+    charts['chartCDRsNivel'] = new Chart(nivelEl, {
+      type:'bar', data:{labels:nivEntries.map(e=>e[0]),datasets:[{label:'Vagas',data:nivEntries.map(e=>e[1]),backgroundColor:PAL.slice(0,nivEntries.length),borderRadius:5,borderSkipped:false}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{...tooltipOpts,callbacks:{label:ctx=>{
+        const niv = nivEntries[ctx.dataIndex][0];
+        const sals = nivSal[niv]||[];
+        const avg = sals.length ? fmtBRL(sals.reduce((s,v)=>s+v,0)/sals.length) : '—';
+        return [`Vagas: ${ctx.parsed.y}`, `Média salarial: ${avg}`];
+      }}}},scales:{x:{ticks:{color:t.tick,font:{size:10},maxRotation:30},grid:{color:t.grid},border:{display:false}},y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}}}}
+    });
+  }
+
+  // Chart 4: Fontes por mês
+  if(charts['chartCDRsFonte']) charts['chartCDRsFonte'].destroy();
+  const fonteEl = document.getElementById('chartCDRsFonte');
+  if(fonteEl) {
+    const topFontes = Object.entries(fonteMap).sort((a,b)=>b[1]-a[1]).slice(0,6).map(e=>e[0]);
+    charts['chartCDRsFonte'] = new Chart(fonteEl, {
+      type:'line', data:{labels:MESES_L, datasets:topFontes.map((f,i)=>({
+        label:f,
+        data:MESES_L.map((_,mi)=>{ const m=String(mi+1).padStart(2,'0'); return filtered.filter(r=>r.fonte===f&&(r.mesFechamento===m||r.mesAbertura===m)).length; }),
+        borderColor:PAL[i%PAL.length], backgroundColor:'transparent',
+        tension:.3, pointRadius:4, pointBackgroundColor:PAL[i%PAL.length], fill:false,
+      }))},
+      options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{display:true,position:'top',labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:11}}},tooltip:tooltipOpts},scales:{x:{ticks:{color:t.tick,font:{size:11}},grid:{color:t.grid},border:{display:false}},y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}}}}
+    });
+  }
+}
+
+
+function cdRsFilterAll(checkClass, labelId, defaultLabel) {
+  if (checkClass==='cdRsAreaCheck')   window._cdRsAreaSel   = [];
+  if (checkClass==='cdRsGestorCheck') window._cdRsGestorSel = [];
+  const lbl=document.getElementById(labelId); if(lbl) lbl.textContent=defaultLabel;
+  const el = document.getElementById('cd-recrutamento');
+  if(el) renderCDRecrutamento(el, document.getElementById('month-select')?.value||'');
+}
+function cdRsFilterClear(checkClass, labelId, defaultLabel) {
+  if (checkClass==='cdRsAreaCheck')   window._cdRsAreaSel   = ['__none__'];
+  if (checkClass==='cdRsGestorCheck') window._cdRsGestorSel = ['__none__'];
+  const lbl=document.getElementById(labelId); if(lbl) lbl.textContent=defaultLabel;
+  const el = document.getElementById('cd-recrutamento');
+  if(el) renderCDRecrutamento(el, document.getElementById('month-select')?.value||'');
+}
+function cdRsFilterUpdate(checkClass, labelId, defaultLabel) {
+  const checked=[...document.querySelectorAll('.'+checkClass+':checked')].map(c=>c.value);
+  if (checkClass==='cdRsAreaCheck')   window._cdRsAreaSel   = checked;
+  if (checkClass==='cdRsGestorCheck') window._cdRsGestorSel = checked;
+  const total=document.querySelectorAll('.'+checkClass).length;
+  const lbl=document.getElementById(labelId); if(!lbl) return;
+  lbl.textContent=(!checked.length||checked.length===total)?defaultLabel:`${checked.length} selecionado${checked.length>1?'s':''}`;
+}
+
+
+function openCDRsModal(tipo) {
+  const lists  = window._cdRsLists || {};
+  const lista  = lists[tipo] || [];
+  const titles = {abertas:'Vagas Abertas',fechadas:'Vagas Fechadas',trabalhadas:'Vagas Trabalhadas',declinios:'Declínios'};
+  const fmtDt  = dt => {
+    if (!dt) return '—';
+    if (dt instanceof Date) return `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}/${dt.getFullYear()}`;
+    return String(dt).trim();
+  };
+  const title = document.getElementById('cdRsModalTitle');
+  const body  = document.getElementById('cdRsModalBody');
+  const modal = document.getElementById('cdRsModal');
+  if (!title||!body||!modal) return;
+  title.textContent = `${titles[tipo]||tipo} — ${lista.length} vagas`;
+  body.innerHTML = lista.length ? `
+    <table class="movim-table">
+      <thead><tr><th>Cargo</th><th>Área</th><th>Gestor</th><th>Motivo</th><th>SLA (úteis)</th><th>Abertura</th></tr></thead>
+      <tbody>${lista.map(r=>`<tr><td>${r.cargo||'—'}</td><td>${r.area||'—'}</td><td>${r.gestor||'—'}</td><td>${r.motivo||'—'}</td><td>${r.slaUteis||'—'}</td><td>${fmtDt(r.dataAbertura)}</td></tr>`).join('')}</tbody>
+    </table>` : '<div style="padding:16px;color:var(--text-secondary)">Nenhuma vaga.</div>';
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+// Garante funções no escopo global
+window.openCDRsModal   = openCDRsModal;
+window.openCDOffModal  = openCDOffModal;
+window.openCDExpModal  = openCDExpModal;
+window.renderCDDashboard  = renderCDDashboard;
+window.renderCDRecrutamento = renderCDRecrutamento;
+window.cdFilterAll     = cdFilterAll;
+window.cdFilterClear   = cdFilterClear;
+window.cdFilterUpdate  = cdFilterUpdate;
+window.cdRsFilterAll   = cdRsFilterAll;
+window.cdRsFilterClear = cdRsFilterClear;
+window.cdRsFilterUpdate= cdRsFilterUpdate;
+
+function renderCDSection(cat) {
+  cdCurrentCategory = cat;
+
+  document.querySelectorAll('#navCD .nav-item').forEach(n => n.classList.remove('active'));
+  document.querySelector(`#navCD [data-cd-category="${cat}"]`)?.classList.add('active');
+  document.querySelectorAll('#navYandeh .nav-item').forEach(n => n.classList.remove('active'));
+
+  document.querySelectorAll('.category-section').forEach(s => {
+    s.classList.remove('active'); s.style.display = 'none';
+  });
+  document.querySelectorAll('.kpi-section').forEach(el => el.style.display = 'none');
+
+  const cdEl = document.getElementById(cat);
+  if (!cdEl) return;
+  cdEl.style.display = '';
+  cdEl.classList.add('active');
+  cdEl.innerHTML = '';
+
+  if (!cdData.hasData) {
+    cdEl.innerHTML = '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="40" height="40"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><p>Importe a planilha do <strong>Girotrade CD</strong> usando o botão acima.</p></div>';
+    return;
+  }
+
+  const mesSel = document.getElementById('month-select')?.value || '';
+
+  if (cat === 'cd-dashboard')    { renderCDDashboard(); return; }
+  if (cat === 'cd-absenteismo')  { renderCDAbsenteismo(mesSel); return; }
+  if (cat === 'cd-recrutamento') { renderCDRecrutamento(cdEl, mesSel); return; }
+
+  // Seções com tabela — render + aplica filtros de coluna
+  if (cat === 'cd-atestados')     renderCDAtestados(cdEl, mesSel);
+  else if (cat === 'cd-cotas')        renderCDCotas(cdEl, mesSel);
+  else if (cat === 'cd-movimentacoes') renderCDMovimentacoes(cdEl, mesSel);
+  else if (cat === 'cd-offboarding')   renderCDOffboarding(cdEl, mesSel);
+
+  // Aplica filtros de coluna em todas as tabelas renderizadas
+  cdEl.querySelectorAll('.movim-table, .exp-list-table').forEach(tbl => addColFilters(tbl));
+}
+
+// ─── Renders dedicados para cada seção CD ───────────────────────
+
+function renderCDAtestados(el, mesSel) {
+  const D    = mesSel ? cdData.atestados.filter(r=>r.mes===mesSel) : cdData.atestados;
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const t    = chartTheme();
+  const fmtBRL = v => Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0});
+
+  // KPIs
+  const total        = D.length;
+  const colaborUniq  = new Set(D.map(r=>r.nome)).size;
+  const afastadosNow = D.filter(r => {
+    if (!r.dtFimAfast) return false;
+    const fim = r.dtFimAfast instanceof Date ? r.dtFimAfast : new Date(r.dtFimAfast);
+    return fim >= hoje;
+  });
+  const CID_PSI = D.filter(r => /^f/i.test(String(r.cid||'').trim()));
+  const totalDias    = D.reduce((s,r) => s+r.diasAfast, 0);
+  const INSS         = D.filter(r => r.diasAuxDoenca > 0);
+  const impactoSal   = D.reduce((s,r) => {
+    const dias = r.diasAfast||0;
+    const sal  = r.salario||0;
+    return s + (dias/30)*sal;
+  }, 0);
+
+  // Dias com 100% do quadro (dias do período sem nenhum atestado)
+  const totalColab = cdData.ativos.length || 1;
+  const diasComAtestado = new Set(D.map(r => {
+    if (!r.dtInicioAfast) return null;
+    const d = r.dtInicioAfast instanceof Date ? r.dtInicioAfast : new Date(r.dtInicioAfast);
+    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  }).filter(Boolean)).size;
+  // Dias úteis no período (aprox 22/mês ou total se sem filtro)
+  const diasPeriodo = mesSel ? 22 : 22 * (new Set(D.map(r=>r.mes)).size || 1);
+  const diasSemAtest = Math.max(0, diasPeriodo - diasComAtestado);
+
+  // Tooltip CID Psiquiátrico
+  const CID_PSI_LIST = CID_PSI.map(r => `${r.nome} — ${r.cid}`).join('<br>') || 'Nenhum';
+  // Tooltip INSS
+  const INSS_LIST = INSS.map(r => `${r.nome} | CID: ${r.cid||'—'} | ${r.diasAfast} dias`).join('<br>') || 'Nenhum';
+
+  el.innerHTML = `
+    <style>
+      .cd-ates-tooltip { position:relative; cursor:default; }
+      .cd-ates-tip {
+        display:none;
+        position:fixed;
+        z-index:9999;
+        background:var(--card-bg);
+        border:1px solid var(--border);
+        border-radius:8px;
+        padding:10px 14px;
+        font-size:11.5px;
+        color:var(--text-primary);
+        line-height:1.8;
+        white-space:nowrap;
+        box-shadow:0 4px 24px rgba(0,0,0,.22);
+        min-width:220px;
+        max-width:380px;
+        pointer-events:none;
+      }
+      .cd-ates-tip.visible { display:block; }
+    </style>
+
+    <!-- Linha 1 — cards grandes com destaque -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:12px">
+
+      <!-- Total de Atestados -->
+      <div class="kpi-card kpi-blue" style="min-height:110px">
+        <div class="kpi-icon-wrap kpi-icon-blue">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        </div>
+        <div class="kpi-content">
+          <div class="kpi-label">TOTAL DE ATESTADOS</div>
+          <div class="kpi-value" style="font-size:36px">${total}</div>
+          <div class="kpi-sub">${colaborUniq} colaborador${colaborUniq!==1?'es':''} afetado${colaborUniq!==1?'s':''}</div>
+        </div>
+      </div>
+
+      <!-- Afastados no momento com tooltip -->
+      <div class="kpi-card kpi-orange cd-ates-tooltip" style="min-height:110px">
+        <div class="kpi-icon-wrap kpi-icon-orange">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+        </div>
+        <div class="kpi-content">
+          <div class="kpi-label">AFASTADOS NO MOMENTO</div>
+          <div class="kpi-value" style="font-size:36px">${afastadosNow.length}</div>
+          <div class="kpi-sub">${afastadosNow.length ? 'passe o mouse para ver ↑' : 'Nenhum afastado agora'}</div>
+        </div>
+        <div class="cd-ates-tip">
+          <strong>Afastados agora</strong><br>
+          ${afastadosNow.length ? afastadosNow.map(r => {
+            const fimDt = r.dtFimAfast instanceof Date
+              ? `${String(r.dtFimAfast.getUTCDate()).padStart(2,'0')}/${String(r.dtFimAfast.getUTCMonth()+1).padStart(2,'0')}/${r.dtFimAfast.getUTCFullYear()}`
+              : '—';
+            return `${r.nome} | ${r.motivo||'—'} | Retorno: ${fimDt}`;
+          }).join('<br>') : 'Nenhum'}
+        </div>
+      </div>
+
+      <!-- CIDs Psiquiátricos com tooltip -->
+      <div class="kpi-card cd-ates-tooltip" style="border-top:3px solid #7030a0;min-height:110px">
+        <div class="kpi-icon-wrap" style="background:rgba(112,48,160,.12)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#7030a0" stroke-width="2" width="24" height="24"><path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v11m0 0H5m4 0h4m0-11v11m0 0h4m0 0v4a2 2 0 01-2 2H9m8-6v6"/></svg>
+        </div>
+        <div class="kpi-content">
+          <div class="kpi-label" style="color:#7030a0">CIDS PSIQUIÁTRICOS</div>
+          <div class="kpi-value" style="font-size:36px;color:#7030a0">${CID_PSI.length}</div>
+          <div class="kpi-sub">${CID_PSI.length ? 'passe o mouse para ver ↑' : 'Nenhum registro'}</div>
+        </div>
+        <div class="cd-ates-tip">
+          <strong>CIDs Psiquiátricos (F)</strong><br>
+          ${CID_PSI.length ? CID_PSI.map(r => `${r.nome} | ${r.cid}`).join('<br>') : 'Nenhum'}
+        </div>
+      </div>
+    </div>
+
+    <!-- Linha 2 — cards menores -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px">
+
+      <!-- Total de dias afastados -->
+      <div class="ativos-kpi-card ativos-kpi-amber">
+        <div class="ativos-kpi-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </div>
+        <div class="ativos-kpi-body">
+          <div class="ativos-kpi-label">Total de dias afastados</div>
+          <div class="ativos-kpi-value">${totalDias}</div>
+          <div class="ativos-kpi-sub">${diasSemAtest} dias com 100% do quadro</div>
+        </div>
+      </div>
+
+      <!-- Entrada no INSS com tooltip -->
+      <div class="ativos-kpi-card cd-ates-tooltip" style="border-left:3px solid #e81123;position:relative">
+        <div class="ativos-kpi-icon" style="color:#e81123">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#e81123" stroke-width="2" width="22" height="22"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        </div>
+        <div class="ativos-kpi-body">
+          <div class="ativos-kpi-label">Entrada no INSS</div>
+          <div class="ativos-kpi-value" style="color:#e81123">${INSS.length}</div>
+          <div class="ativos-kpi-sub">≥ 15 dias · doença</div>
+        </div>
+        <div class="cd-ates-tip" style="left:auto;right:0">
+          <strong>Colaboradores no INSS</strong><br>${INSS_LIST}
+        </div>
+      </div>
+
+      <!-- Impacto salarial -->
+      <div class="ativos-kpi-card" style="border-left:3px solid #d83b81">
+        <div class="ativos-kpi-icon" style="color:#d83b81">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#d83b81" stroke-width="2" width="22" height="22"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+        </div>
+        <div class="ativos-kpi-body">
+          <div class="ativos-kpi-label">Impacto salarial (doença)</div>
+          <div class="ativos-kpi-value" style="color:#d83b81;font-size:16px">${fmtBRL(impactoSal)}</div>
+          <div class="ativos-kpi-sub">custo estimado em afastamentos</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Gráficos linha 1: Área + Evolução -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px;margin-bottom:14px">
+      <div class="chart-card" style="height:280px">
+        <div class="chart-title">Atestados por Área</div>
+        <div style="height:220px;position:relative"><canvas id="chartCDAtesArea"></canvas></div>
+      </div>
+      <div class="chart-card" style="height:280px">
+        <div class="chart-title">${mesSel ? 'Evolução de Atestados — Dia a Dia' : 'Evolução Mensal de Atestados'}</div>
+        <div style="height:220px;position:relative"><canvas id="chartCDAtesEvo"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Gráfico linha 2: Classificação (largura total) -->
+    <div class="chart-card">
+      <div class="chart-title">Atestados por Classificação</div>
+      <canvas id="chartCDAtesClas" height="80"></canvas>
+    </div>`;
+
+  // ── Gráfico Atestados por Área ──
+  const areaAtesMap = {};
+  D.forEach(r => { const a = r.area||'Não informado'; areaAtesMap[a]=(areaAtesMap[a]||0)+1; });
+  const areaAtesEntries = Object.entries(areaAtesMap).sort((a,b)=>b[1]-a[1]);
+  const PAL = ['#0078d4','#b4a0ff','#107c10','#ff8c00','#e81123','#00b7c3','#7030a0','#d83b81','#4a5568'];
+  const tooltipOpts = {backgroundColor:t.bg,titleColor:t.text,bodyColor:t.tick,borderWidth:1,borderColor:'rgba(0,0,0,.08)',padding:10};
+
+  if(charts['chartCDAtesArea']) charts['chartCDAtesArea'].destroy();
+  const areaEl = document.getElementById('chartCDAtesArea');
+  if(areaEl) charts['chartCDAtesArea'] = new Chart(areaEl, {
+    type:'bar',
+    data:{labels:areaAtesEntries.map(e=>e[0]),datasets:[{label:'Atestados',data:areaAtesEntries.map(e=>e[1]),backgroundColor:areaAtesEntries.map((_,i)=>PAL[i%PAL.length]),borderRadius:5,borderSkipped:false}]},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tooltipOpts},scales:{x:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}},y:{ticks:{color:t.tick,font:{size:10}},grid:{color:t.grid},border:{display:false}}}}
+  });
+
+  // ── Gráfico Evolução — mensal ou dia a dia ──
+  if(charts['chartCDAtesEvo']) charts['chartCDAtesEvo'].destroy();
+  const evoEl = document.getElementById('chartCDAtesEvo');
+  if(evoEl) {
+    let evoLabels, evoData;
+    if (mesSel) {
+      // Dia a dia: expande cada atestado pelos dias de afastamento
+      const diasMap = {};
+      D.forEach(r => {
+        if (!r.dtInicioAfast) return;
+        const ini = r.dtInicioAfast instanceof Date ? new Date(r.dtInicioAfast) : new Date(r.dtInicioAfast);
+        const dias = r.diasAfast || 1;
+        for (let i=0; i<dias; i++) {
+          const d = new Date(ini); d.setDate(d.getDate()+i);
+          if (String(d.getMonth()+1).padStart(2,'0') !== mesSel) continue;
+          const key = String(d.getDate()).padStart(2,'0');
+          diasMap[key] = (diasMap[key]||0)+1;
+        }
+      });
+      const diasMes = new Date(2026, parseInt(mesSel), 0).getDate();
+      evoLabels = Array.from({length:diasMes},(_,i)=>String(i+1).padStart(2,'0'));
+      evoData   = evoLabels.map(d => diasMap[d]||0);
+    } else {
+      // Mensal
+      const MESES_L = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+      const mesMap = {};
+      D.forEach(r => { if(r.mes) mesMap[r.mes]=(mesMap[r.mes]||0)+1; });
+      evoLabels = MESES_L.map((_,i)=>String(i+1).padStart(2,'0'));
+      evoData   = evoLabels.map(m=>mesMap[m]||0);
+      evoLabels = MESES_L;
+    }
+    charts['chartCDAtesEvo'] = new Chart(evoEl, {
+      type:'bar',
+      data:{labels:evoLabels,datasets:[{label:'Atestados',data:evoData,backgroundColor:'rgba(0,120,212,.7)',borderRadius:4}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tooltipOpts},scales:{x:{ticks:{color:t.tick,font:{size:mesSel?9:11},maxRotation:0},grid:{color:t.grid},border:{display:false}},y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}}}}
+    });
+  }
+
+  // ── Gráfico Atestados por Classificação ──
+  const CLAS_ORDER_ATES = ['jovem','aprendiz','auxiliar','assistente','analista','supervisor','gerente','diretor'];
+  const clasAtesMap = {};
+  D.forEach(r => { const c = r.classificacao||'Não informado'; clasAtesMap[c]=(clasAtesMap[c]||0)+1; });
+  const clasAtesEntries = Object.entries(clasAtesMap).sort((a,b) => {
+    const ai = CLAS_ORDER_ATES.findIndex(o => a[0].toLowerCase().includes(o));
+    const bi = CLAS_ORDER_ATES.findIndex(o => b[0].toLowerCase().includes(o));
+    if(ai===-1&&bi===-1) return b[1]-a[1];
+    if(ai===-1) return 1; if(bi===-1) return -1;
+    return ai-bi;
+  });
+
+  if(charts['chartCDAtesClas']) charts['chartCDAtesClas'].destroy();
+  const clasEl2 = document.getElementById('chartCDAtesClas');
+  if(clasEl2) charts['chartCDAtesClas'] = new Chart(clasEl2, {
+    type:'bar',
+    data:{labels:clasAtesEntries.map(e=>e[0]),datasets:[{label:'Atestados',data:clasAtesEntries.map(e=>e[1]),backgroundColor:clasAtesEntries.map((_,i)=>PAL[i%PAL.length]),borderRadius:5,borderSkipped:false}]},
+    options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{display:false},tooltip:tooltipOpts},scales:{x:{ticks:{color:t.tick,font:{size:11},maxRotation:30},grid:{color:t.grid},border:{display:false}},y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}}}}
+  });
+
+  // Tooltip via JS — escapa do overflow:hidden do kpi-card
+  el.querySelectorAll('.cd-ates-tooltip').forEach(card => {
+    const tip = card.querySelector('.cd-ates-tip');
+    if (!tip) return;
+    // Garante que o tip começa escondido dentro do card
+    tip.classList.remove('visible');
+    card.addEventListener('mouseenter', () => {
+      const r = card.getBoundingClientRect();
+      tip.style.position = 'fixed';
+      tip.style.top  = (r.bottom + 8) + 'px';
+      tip.style.left = r.left + 'px';
+      tip.style.display = 'block';
+      document.body.appendChild(tip);
+      requestAnimationFrame(() => {
+        const tr = tip.getBoundingClientRect();
+        if (tr.right > window.innerWidth - 8) tip.style.left = (window.innerWidth - tr.width - 8) + 'px';
+      });
+    });
+    card.addEventListener('mouseleave', () => {
+      tip.style.display = 'none';
+      card.appendChild(tip);
+    });
+  });
+}
+
+function renderCDCotas(el, mesSel) {
+  const MESES_L = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const t = chartTheme();
+  const isDk = isDark();
+  const tooltipOpts = {backgroundColor:t.bg,titleColor:t.text,bodyColor:t.tick,borderWidth:1,borderColor:isDk?'rgba(255,255,255,.1)':'rgba(0,0,0,.08)',padding:10};
+
+  const buildSeries = dados => {
+    const labels    = MESES_L;
+    const cotaMin   = MESES_L.map((_,i) => { const m=String(i+1).padStart(2,'0'); const r=dados.find(d=>d.mes===m); return r ? r.cotaMin : null; });
+    const cotaAtual = MESES_L.map((_,i) => { const m=String(i+1).padStart(2,'0'); const r=dados.find(d=>d.mes===m); return r ? r.cotaAtual : null; });
+    const contratar = MESES_L.map((_,i) => { const m=String(i+1).padStart(2,'0'); const r=dados.find(d=>d.mes===m); return r ? Math.max(0, r.cotaMin - r.cotaAtual) : null; });
+    return { labels, cotaMin, cotaAtual, contratar };
+  };
+
+  const pcd = cdData.cotasPcd || [];
+  const ja  = cdData.cotasJa  || [];
+  const mesIdx = mesSel ? parseInt(mesSel)-1 : pcd.filter(d=>d.cotaAtual>0).length-1;
+  const pcdMes = pcd[mesIdx] || {};
+  const jaMes  = ja[mesIdx]  || {};
+
+  el.innerHTML = `
+    <!-- KPIs resumo -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+      <div class="kpi-card kpi-blue">
+        <div class="kpi-icon-wrap kpi-icon-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
+        <div class="kpi-content">
+          <div class="kpi-label">PCD — COTA ATUAL</div>
+          <div class="kpi-value">${pcdMes.cotaAtual ?? '—'}</div>
+          <div class="kpi-sub">Mínimo: ${pcdMes.cotaMin !== undefined ? pcdMes.cotaMin.toFixed(1) : '—'}</div>
+        </div>
+      </div>
+      <div class="kpi-card kpi-green">
+        <div class="kpi-icon-wrap kpi-icon-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
+        <div class="kpi-content">
+          <div class="kpi-label">JA — COTA ATUAL</div>
+          <div class="kpi-value">${jaMes.cotaAtual ?? '—'}</div>
+          <div class="kpi-sub">Mínimo: ${jaMes.cotaMin !== undefined ? jaMes.cotaMin.toFixed(1) : '—'}</div>
+        </div>
+      </div>
+      <div class="kpi-card" style="border-top:3px solid #e81123">
+        <div class="kpi-icon-wrap" style="background:rgba(232,17,35,.1)"><svg viewBox="0 0 24 24" fill="none" stroke="#e81123" stroke-width="2" width="22" height="22"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+        <div class="kpi-content">
+          <div class="kpi-label" style="color:#e81123">A CONTRATAR</div>
+          <div class="kpi-value" style="color:#e81123">${Math.max(0,pcdMes.contratar||0)+Math.max(0,jaMes.contratar||0)}</div>
+          <div class="kpi-sub">PCD: ${Math.max(0,pcdMes.contratar||0)} · JA: ${Math.max(0,jaMes.contratar||0)}</div>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="chart-card">
+        <div class="chart-title">Evolução Mensal — Cotas PCD</div>
+        <canvas id="chartCDCotaPCD" height="130"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Evolução Mensal — Jovem Aprendiz</div>
+        <canvas id="chartCDCotaJA" height="130"></canvas>
+      </div>
+    </div>`;
+
+  const makeChart = (id, dados, corMin, corAtual, corContratar) => {
+    if (charts[id]) charts[id].destroy();
+    const el2 = document.getElementById(id);
+    if (!el2) return;
+    const { labels, cotaMin, cotaAtual, contratar } = buildSeries(dados);
+    charts[id] = new Chart(el2, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label:'Cota Mínima',  data:cotaMin,   borderColor:corMin,      backgroundColor:'transparent', tension:.3, spanGaps:true, pointRadius:4, pointBackgroundColor:corMin,      borderDash:[5,4] },
+          { label:'Cota Atual',   data:cotaAtual, borderColor:corAtual,    backgroundColor:corAtual.replace(')',', 0.08)').replace('rgb','rgba'), tension:.3, fill:true, spanGaps:true, pointRadius:4, pointBackgroundColor:corAtual },
+          { label:'A Contratar',  data:contratar, borderColor:corContratar,backgroundColor:'transparent', tension:.3, spanGaps:true, pointRadius:4, pointBackgroundColor:corContratar, type:'bar', borderRadius:4, backgroundColor:corContratar.replace(')',', 0.6)').replace('rgb','rgba') },
+        ]
+      },
+      options: {
+        responsive:true, maintainAspectRatio:true,
+        plugins:{
+          legend:{ display:true, position:'top', labels:{ color:t.tick, usePointStyle:true, boxWidth:8, font:{size:11} } },
+          tooltip: { ...tooltipOpts, callbacks:{ label: ctx => `${ctx.dataset.label}: ${Number(ctx.parsed.y||0).toFixed(1)}` } }
+        },
+        scales:{
+          x:{ ticks:{color:t.tick,font:{size:11}}, grid:{color:t.grid}, border:{display:false} },
+          y:{ beginAtZero:true, ticks:{color:t.tick,font:{size:11}}, grid:{color:t.grid}, border:{display:false} }
+        }
+      }
+    });
+  };
+
+  makeChart('chartCDCotaPCD', cdData.cotasPcd, 'rgb(232,17,35)',  'rgb(0,120,212)',   'rgb(255,140,0)');
+  makeChart('chartCDCotaJA',  cdData.cotasJa,  'rgb(112,48,160)', 'rgb(16,124,16)',   'rgb(0,183,195)');
+}
+
+function openCDOffModal(grupo) {
+  const titles = { ate3m:'Saíram até 3 meses', de3a6m:'Saíram entre 3 e 6 meses', de6ma1a:'Saíram entre 6 meses e 1 ano' };
+  const lista  = (window._cdOffLists||{})[grupo] || [];
+  const title  = document.getElementById('cdOffModalTitle');
+  const body   = document.getElementById('cdOffModalBody');
+  const modal  = document.getElementById('cdOffModal');
+  if (!title||!body||!modal) return;
+  title.textContent = `${titles[grupo]} — ${lista.length} colaboradores`;
+  const fmtTempo = dias => {
+    if (!dias) return '—';
+    const anos = Math.floor(dias/365), meses = Math.floor((dias%365)/30);
+    return anos ? `${anos}a ${meses}m` : `${meses}m`;
+  };
+  body.innerHTML = lista.length ? `
+    <table class="movim-table">
+      <thead><tr><th>Nome</th><th>Área</th><th>Classificação</th><th>Tempo de Casa</th><th>Mês</th></tr></thead>
+      <tbody>${[...lista].sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR')).map(r=>`
+        <tr>
+          <td>${r.nome}</td>
+          <td>${r.area||'—'}</td>
+          <td>${r.classificacao||'—'}</td>
+          <td>${fmtTempo(r.diasTrabalhados)}</td>
+          <td>${r.mes||'—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>` : '<div style="padding:16px;color:var(--text-secondary)">Nenhum colaborador neste grupo.</div>';
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function renderCDMovimentacoes(el, mesSel) {
+  const TODOS = cdData.moviment;
+  const D     = mesSel ? TODOS.filter(r=>r.mes===mesSel) : TODOS;
+  const total = D.length;
+  const prom  = D.filter(r=>/promo/i.test(r.motivoGeral)).length;
+  const merit = D.filter(r=>/mérito|merito/i.test(r.motivoGeral)).length;
+  const reest = D.filter(r=>/reestru/i.test(r.motivoGeral)).length;
+  const t     = chartTheme();
+  const isDk  = isDark();
+  const tooltipOpts = {backgroundColor:t.bg,titleColor:t.text,bodyColor:t.tick,borderWidth:1,borderColor:isDk?'rgba(255,255,255,.1)':'rgba(0,0,0,.08)',padding:10};
+  const MESES_L = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+  // Tipos únicos para evolução
+  const tiposMap = {};
+  TODOS.forEach(r => { const tipo = r.motivoGeral||'Outros'; tiposMap[tipo]=(tiposMap[tipo]||0)+1; });
+  const tiposTop = Object.entries(tiposMap).sort((a,b)=>b[1]-a[1]).slice(0,6).map(e=>e[0]);
+  const PAL = ['#0078d4','#b4a0ff','#107c10','#ff8c00','#e81123','#00b7c3'];
+
+  el.innerHTML = `
+    <!-- Cards KPI -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+      <div class="kpi-card kpi-blue"><div class="kpi-content"><div class="kpi-label">TOTAL</div><div class="kpi-value">${total}</div></div></div>
+      <div class="kpi-card kpi-green"><div class="kpi-content"><div class="kpi-label">PROMOÇÕES</div><div class="kpi-value">${prom}</div></div></div>
+      <div class="kpi-card kpi-orange"><div class="kpi-content"><div class="kpi-label">MÉRITOS</div><div class="kpi-value">${merit}</div></div></div>
+      <div class="kpi-card" style="border-top:3px solid #b4a0ff"><div class="kpi-content"><div class="kpi-label">REESTRUTURAÇÕES</div><div class="kpi-value">${reest}</div></div></div>
+    </div>
+
+    <!-- Gráfico evolução -->
+    <div class="chart-card" style="margin-bottom:16px">
+      <div class="chart-title">Evolução Mensal por Tipo de Movimentação</div>
+      <canvas id="chartCDMovEvo" height="90"></canvas>
+    </div>
+
+    <!-- Tabela -->
+    <div class="chart-card" style="padding:0;overflow:hidden">
+      <table class="movim-table">
+        <thead><tr><th>Nome</th><th>Motivo Geral</th><th>Área Atual → Nova</th><th>% Aumento</th><th>Mês</th></tr></thead>
+        <tbody>${D.length ? D.map(r=>`<tr><td>${r.nome}</td><td>${r.motivoGeral||'—'}</td><td>${r.areaAtual||'—'} → ${r.areaNova||'—'}</td><td>${r.pctAumento||'—'}</td><td>${r.mes||'—'}</td></tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text-secondary);padding:16px">Sem dados para este período.</td></tr>'}</tbody>
+      </table>
+    </div>`;
+
+  // Gráfico linhas — evolução mensal por tipo
+  if(charts['chartCDMovEvo']) charts['chartCDMovEvo'].destroy();
+  const evoEl = document.getElementById('chartCDMovEvo');
+  if(evoEl) {
+    const datasets = tiposTop.map((tipo, i) => ({
+      label: tipo,
+      data: MESES_L.map((_,mi) => {
+        const m = String(mi+1).padStart(2,'0');
+        return TODOS.filter(r=>r.mes===m && r.motivoGeral===tipo).length || 0;
+      }),
+      borderColor: PAL[i],
+      backgroundColor: 'transparent',
+      tension: .3,
+      pointRadius: 3,
+      pointBackgroundColor: PAL[i],
+      spanGaps: true,
+    }));
+    charts['chartCDMovEvo'] = new Chart(evoEl, {
+      type:'line',
+      data:{labels:MESES_L, datasets},
+      options:{
+        responsive:true,maintainAspectRatio:true,
+        plugins:{
+          legend:{display:true,position:'top',labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:11},padding:10}},
+          tooltip:tooltipOpts
+        },
+        scales:{
+          x:{ticks:{color:t.tick,font:{size:11}},grid:{color:t.grid},border:{display:false}},
+          y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}}
+        }
+      }
+    });
+  }
+}
+
+function renderCDOffboarding(el, mesSel) {
+  const D    = mesSel ? cdData.offboarding.filter(r=>r.mes===mesSel) : cdData.offboarding;
+  const vols = D.filter(r=>/volunt/i.test(r.tipo)).length;
+  const invol= D.length - vols;
+  const LIDER = ['ceo','diretor','head','gerente','coordenador','supervisor'];
+  const isLider = d => LIDER.some(l=>String(d.classificacao||'').toLowerCase().includes(l));
+  const liderOff = D.filter(isLider).length;
+  const naoLiderOff = D.length - liderOff;
+  const fmtTempo = dias => {
+    if (!dias) return '—';
+    const anos = Math.floor(dias/365), meses = Math.floor((dias%365)/30);
+    return anos ? `${anos}a ${meses}m` : `${meses}m`;
+  };
+
+  // Turnover: desligamentos / headcount médio
+  const hcArr = cdData.headcount.filter(h=>h.hc>0);
+  const hcMedio = hcArr.length ? hcArr.reduce((s,h)=>s+h.hc,0)/hcArr.length : cdData.ativos.length||1;
+  const turnover = hcMedio > 0 ? ((D.length / hcMedio)*100).toFixed(1) : '0.0';
+  const turnoverVol  = hcMedio > 0 ? ((vols  / hcMedio)*100).toFixed(1) : '0.0';
+  const turnoverInvol= hcMedio > 0 ? ((invol / hcMedio)*100).toFixed(1) : '0.0';
+  const turnoverLider= hcMedio > 0 ? ((liderOff / hcMedio)*100).toFixed(1) : '0.0';
+  const turnoverNaoL = hcMedio > 0 ? ((naoLiderOff / hcMedio)*100).toFixed(1) : '0.0';
+
+  // Grupos por tempo de casa
+  const ate3m   = D.filter(r => r.diasTrabalhados >= 0   && r.diasTrabalhados < 90);
+  const de3a6m  = D.filter(r => r.diasTrabalhados >= 90  && r.diasTrabalhados < 180);
+  const de6ma1a = D.filter(r => r.diasTrabalhados >= 180 && r.diasTrabalhados < 365);
+
+  // Tempo médio de casa
+  const comDias = D.filter(r => r.diasTrabalhados > 0);
+  const tempoCasaMedio = comDias.length
+    ? Math.round(comDias.reduce((s,r) => s+r.diasTrabalhados, 0) / comDias.length)
+    : 0;
+
+  // Principal motivo
+  const motivoCount = {};
+  D.forEach(r => { const m = r.motivo||'Não informado'; motivoCount[m]=(motivoCount[m]||0)+1; });
+  const principalMotivo = Object.entries(motivoCount).sort((a,b)=>b[1]-a[1])[0]?.[0] || '—';
+  const motivoPct = D.length ? ((motivoCount[principalMotivo]/D.length)*100).toFixed(0) : 0;
+
+  // Salva listas para modal
+  window._cdOffLists = { ate3m, de3a6m, de6ma1a };
+
+  el.innerHTML = `
+    <!-- Modal saída precoce -->
+    <div id="cdOffModal" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.55);align-items:center;justify-content:center">
+      <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:24px 28px;min-width:560px;max-width:700px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.3);position:relative">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div id="cdOffModalTitle" style="font-size:15px;font-weight:700;color:var(--text-primary)"></div>
+          <button onclick="document.getElementById('cdOffModal').style.display='none';document.body.style.overflow=''"
+            style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:18px;line-height:1;padding:2px 6px">&times;</button>
+        </div>
+        <div id="cdOffModalBody"></div>
+      </div>
+    </div>
+
+    <!-- Modal turnover -->
+    <div id="cdTurnoverModal" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.55);align-items:center;justify-content:center">
+      <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:24px 28px;min-width:420px;max-width:540px;box-shadow:0 8px 40px rgba(0,0,0,.3);position:relative">
+        
+        <!-- Header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+          <div style="font-size:15px;font-weight:700;color:var(--text-primary)">Detalhamento do Turnover</div>
+          <button onclick="document.getElementById('cdTurnoverModal').style.display='none';document.body.style.overflow=''"
+            style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:18px;line-height:1;padding:2px 6px">&times;</button>
+        </div>
+
+        <!-- Dois painéis lado a lado -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+          
+          <!-- Por tipo -->
+          <div style="background:var(--bg-secondary);border-radius:10px;padding:16px 18px">
+            <div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--text-secondary);margin-bottom:14px">POR TIPO</div>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+                <span style="font-size:13px;color:var(--text-primary)">Voluntário</span>
+                <span style="display:flex;align-items:baseline;gap:6px">
+                  <span style="font-size:20px;font-weight:700;color:var(--text-primary)">${vols}</span>
+                  <span style="font-size:11px;color:var(--text-secondary)">(${turnoverVol}% turnover)</span>
+                </span>
+              </div>
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+                <span style="font-size:13px;color:var(--text-primary)">Involuntário</span>
+                <span style="display:flex;align-items:baseline;gap:6px">
+                  <span style="font-size:20px;font-weight:700;color:var(--text-primary)">${invol}</span>
+                  <span style="font-size:11px;color:var(--text-secondary)">(${turnoverInvol}% turnover)</span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Por nível -->
+          <div style="background:var(--bg-secondary);border-radius:10px;padding:16px 18px">
+            <div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--text-secondary);margin-bottom:14px">POR NÍVEL</div>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+                <span style="font-size:13px;color:var(--text-primary)">Liderança</span>
+                <span style="display:flex;align-items:baseline;gap:6px">
+                  <span style="font-size:20px;font-weight:700;color:var(--text-primary)">${liderOff}</span>
+                  <span style="font-size:11px;color:var(--text-secondary)">(${turnoverLider}% turnover)</span>
+                </span>
+              </div>
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+                <span style="font-size:13px;color:var(--text-primary)">Não liderança</span>
+                <span style="display:flex;align-items:baseline;gap:6px">
+                  <span style="font-size:20px;font-weight:700;color:var(--text-primary)">${naoLiderOff}</span>
+                  <span style="font-size:11px;color:var(--text-secondary)">(${turnoverNaoL}% turnover)</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Rodapé resumo -->
+        <div style="background:var(--bg-secondary);border-radius:8px;padding:12px 18px;text-align:center;font-size:13px;color:var(--text-secondary)">
+          Total de desligamentos: <strong style="color:var(--text-primary)">${D.length}</strong>
+          &nbsp;·&nbsp;
+          Turnover geral: <strong style="color:var(--text-primary)">${turnover}%</strong>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cards KPI -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px">
+      <div class="kpi-card kpi-blue"><div class="kpi-content"><div class="kpi-label">TOTAL DESLIGAMENTOS</div><div class="kpi-value">${D.length}</div></div></div>
+      <div class="kpi-card kpi-green"><div class="kpi-content"><div class="kpi-label">VOLUNTÁRIOS</div><div class="kpi-value">${vols}</div></div></div>
+      <div class="kpi-card kpi-orange"><div class="kpi-content"><div class="kpi-label">INVOLUNTÁRIOS</div><div class="kpi-value">${invol}</div></div></div>
+      <div class="kpi-card" style="border-top:3px solid #b4a0ff">
+        <div class="kpi-content">
+          <div class="kpi-label" style="color:#b4a0ff">TURNOVER</div>
+          <div class="kpi-value" style="color:#b4a0ff">${turnover}%</div>
+        </div>
+        <button onclick="document.getElementById('cdTurnoverModal').style.display='flex';document.body.style.overflow='hidden'"
+          class="exp-list-btn" style="margin-top:8px;align-self:flex-start">Ver mais</button>
+      </div>
+    </div>
+
+    <!-- Cards secundários saída precoce + tempo médio + motivo -->
+    <div class="ativos-kpi-row" style="margin-bottom:16px;grid-template-columns:repeat(5,1fr)">
+      <div class="ativos-kpi-card ativos-kpi-amber">
+        <div class="ativos-kpi-body">
+          <div class="ativos-kpi-label">Saíram até 3 meses</div>
+          <div class="ativos-kpi-value">${ate3m.length}</div>
+          <button class="exp-list-btn" onclick="openCDOffModal('ate3m')">Ver colaboradores</button>
+        </div>
+      </div>
+      <div class="ativos-kpi-card ativos-kpi-orange">
+        <div class="ativos-kpi-body">
+          <div class="ativos-kpi-label">3 a 6 meses</div>
+          <div class="ativos-kpi-value">${de3a6m.length}</div>
+          <button class="exp-list-btn" onclick="openCDOffModal('de3a6m')">Ver colaboradores</button>
+        </div>
+      </div>
+      <div class="ativos-kpi-card" style="border-left:3px solid #e81123">
+        <div class="ativos-kpi-body">
+          <div class="ativos-kpi-label">6 meses a 1 ano</div>
+          <div class="ativos-kpi-value">${de6ma1a.length}</div>
+          <button class="exp-list-btn" onclick="openCDOffModal('de6ma1a')">Ver colaboradores</button>
+        </div>
+      </div>
+      <div class="ativos-kpi-card ativos-kpi-blue">
+        <div class="ativos-kpi-body">
+          <div class="ativos-kpi-label">Tempo médio de casa</div>
+          <div class="ativos-kpi-value">${fmtTempo(tempoCasaMedio)}</div>
+          <div class="ativos-kpi-sub">${D.length} colaboradores</div>
+        </div>
+      </div>
+      <div class="ativos-kpi-card ativos-kpi-green">
+        <div class="ativos-kpi-body">
+          <div class="ativos-kpi-label">Principal motivo</div>
+          <div class="ativos-kpi-value" style="font-size:13px;line-height:1.3">${principalMotivo}</div>
+          <div class="ativos-kpi-sub">${motivoPct}% dos desligamentos</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Gráficos -->
+    <div class="chart-card" style="margin-bottom:14px">
+      <div class="chart-title">Volume de Desligamentos por Mês</div>
+      <canvas id="chartCDOffVol" height="80"></canvas>
+    </div>
+    <div class="chart-card" style="margin-bottom:14px">
+      <div class="chart-title">Motivos de Saída por Mês</div>
+      <canvas id="chartCDOffMotivos" height="100"></canvas>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+      <div class="chart-card" style="height:280px">
+        <div class="chart-title">Desligamentos por Área</div>
+        <div style="height:220px;position:relative"><canvas id="chartCDOffArea"></canvas></div>
+      </div>
+      <div class="chart-card" style="height:280px">
+        <div class="chart-title">Desligamentos por Gestor</div>
+        <div style="height:220px;position:relative"><canvas id="chartCDOffGestor"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Tabela -->
+    <div class="chart-card" style="padding:0;overflow:hidden">
+      <table class="movim-table">
+        <thead><tr><th>Nome</th><th>Área</th><th>Cargo</th><th>Tipo</th><th>Motivo</th><th>Tempo de Casa</th><th>Mês</th></tr></thead>
+        <tbody>${D.length ? D.map(r=>{const cor=/volunt/i.test(r.tipo)?'#107c10':'#e81123';return`<tr><td>${r.nome}</td><td>${r.area||'—'}</td><td>${r.cargo||'—'}</td><td style="color:${cor};font-weight:600">${r.tipo||'—'}</td><td>${r.motivo||'—'}</td><td>${fmtTempo(r.diasTrabalhados)}</td><td>${r.mes||'—'}</td></tr>`;}).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text-secondary);padding:16px">Sem dados para este período.</td></tr>'}</tbody>
+      </table>
+    </div>`;
+
+  const MESES_L = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const TODOS   = cdData.offboarding;
+  const t       = chartTheme();
+  const isDk    = isDark();
+  const PAL     = ['#0078d4','#b4a0ff','#107c10','#ff8c00','#e81123','#00b7c3','#7030a0','#d83b81'];
+  const tooltipOpts = {backgroundColor:t.bg,titleColor:t.text,bodyColor:t.tick,borderWidth:1,borderColor:isDk?'rgba(255,255,255,.1)':'rgba(0,0,0,.08)',padding:10};
+
+  // Volume por mês — linhas Voluntário / Involuntário
+  if(charts['chartCDOffVol']) charts['chartCDOffVol'].destroy();
+  const volEl = document.getElementById('chartCDOffVol');
+  if(volEl) {
+    const volsSer = MESES_L.map((_,i)=>TODOS.filter(r=>r.mes===String(i+1).padStart(2,'0')&&/volunt/i.test(r.tipo)).length);
+    const invsSer = MESES_L.map((_,i)=>TODOS.filter(r=>r.mes===String(i+1).padStart(2,'0')&&!/volunt/i.test(r.tipo)).length);
+    charts['chartCDOffVol'] = new Chart(volEl,{type:'line',data:{labels:MESES_L,datasets:[
+      {label:'Voluntário',  data:volsSer, borderColor:'#107c10', backgroundColor:'transparent', tension:.3, pointRadius:4, pointBackgroundColor:'#107c10', fill:false},
+      {label:'Involuntário',data:invsSer, borderColor:'#e81123', backgroundColor:'transparent', tension:.3, pointRadius:4, pointBackgroundColor:'#e81123', fill:false, borderDash:[6,3]},
+    ]},options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{display:true,position:'top',labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:11}}},tooltip:tooltipOpts},scales:{x:{ticks:{color:t.tick,font:{size:11}},grid:{color:t.grid},border:{display:false}},y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}}}}});
+  }
+
+  // Motivos por mês — linhas
+  if(charts['chartCDOffMotivos']) charts['chartCDOffMotivos'].destroy();
+  const motivosEl = document.getElementById('chartCDOffMotivos');
+  if(motivosEl) {
+    const motivoMap = {};
+    TODOS.forEach(r=>{ const m=r.motivo||'Não informado'; motivoMap[m]=(motivoMap[m]||0)+1; });
+    const topMotivos = Object.entries(motivoMap).sort((a,b)=>b[1]-a[1]).slice(0,7).map(e=>e[0]);
+    charts['chartCDOffMotivos'] = new Chart(motivosEl,{type:'line',data:{labels:MESES_L,datasets:topMotivos.map((mot,i)=>({
+      label:mot,
+      data:MESES_L.map((_,mi)=>TODOS.filter(r=>r.mes===String(mi+1).padStart(2,'0')&&r.motivo===mot).length),
+      borderColor:PAL[i%PAL.length], backgroundColor:'transparent',
+      tension:.3, pointRadius:4, pointBackgroundColor:PAL[i%PAL.length], fill:false,
+    }))},options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{display:true,position:'top',labels:{color:t.tick,usePointStyle:true,boxWidth:8,font:{size:11},padding:12}},tooltip:tooltipOpts},scales:{x:{ticks:{color:t.tick,font:{size:11}},grid:{color:t.grid},border:{display:false}},y:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}}}}});
+  }
+
+  // Por área
+  if(charts['chartCDOffArea']) charts['chartCDOffArea'].destroy();
+  const areaMapOff = {};
+  TODOS.forEach(r=>{ const a=r.area||'Não informado'; areaMapOff[a]=(areaMapOff[a]||0)+1; });
+  const areaEntries = Object.entries(areaMapOff).sort((a,b)=>b[1]-a[1]);
+  const areaEl = document.getElementById('chartCDOffArea');
+  if(areaEl) charts['chartCDOffArea'] = new Chart(areaEl,{type:'bar',data:{labels:areaEntries.map(e=>e[0]),datasets:[{label:'Desligamentos',data:areaEntries.map(e=>e[1]),backgroundColor:'rgba(0,120,212,.75)',borderRadius:4}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tooltipOpts},scales:{x:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}},y:{ticks:{color:t.tick,font:{size:10}},grid:{color:t.grid},border:{display:false}}}}});
+
+  // Por gestor
+  if(charts['chartCDOffGestor']) charts['chartCDOffGestor'].destroy();
+  const gestorMapOff = {};
+  TODOS.forEach(r=>{ const g=r.gestor||'Não informado'; gestorMapOff[g]=(gestorMapOff[g]||0)+1; });
+  const gestorEntries = Object.entries(gestorMapOff).sort((a,b)=>b[1]-a[1]);
+  const gestorEl = document.getElementById('chartCDOffGestor');
+  if(gestorEl) charts['chartCDOffGestor'] = new Chart(gestorEl,{type:'bar',data:{labels:gestorEntries.map(e=>e[0]),datasets:[{label:'Desligamentos',data:gestorEntries.map(e=>e[1]),backgroundColor:'rgba(180,160,255,.75)',borderRadius:4}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tooltipOpts},scales:{x:{beginAtZero:true,ticks:{color:t.tick,font:{size:11},stepSize:1},grid:{color:t.grid},border:{display:false}},y:{ticks:{color:t.tick,font:{size:10}},grid:{color:t.grid},border:{display:false}}}}});
+}
+
+
+function handleCDUpload(e) {
+  if (e.target.id !== 'cd-file-upload') return;
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const wb   = XLSX.read(ev.target.result, {type:'array', cellDates:true});
+      const toArr = ws => ws ? XLSX.utils.sheet_to_json(ws, {header:1, defval:null}) : [];
+      const str  = v => String(v||'').trim();
+      const num  = v => { const n = Number(v); return isNaN(n) ? 0 : n; };
+      const MESES_PT = {janeiro:'01',fevereiro:'02',marco:'03',abril:'04',maio:'05',junho:'06',julho:'07',agosto:'08',setembro:'09',outubro:'10',novembro:'11',dezembro:'12'};
+      const normMes = s => {
+        if (!s) return null;
+        if (s instanceof Date) return String(s.getUTCMonth()+1).padStart(2,'0');
+        const v = String(s).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+        if (MESES_PT[v]) return MESES_PT[v];
+        const n = parseInt(v); return (!isNaN(n)&&n>=1&&n<=12) ? String(n).padStart(2,'0') : null;
+      };
+      const toDate = v => {
+        if (!v) return null;
+        if (v instanceof Date) return v;
+        if (typeof v === 'number') return new Date(Math.round((v-25569)*86400*1000));
+        return null;
+      };
+      console.log('[CD] Abas:', wb.SheetNames);
+
+      // ── ATIVOS (idêntico à Yandeh: [4]=ÁREA [5]=GESTOR [8]=NOME [13]=ADMISSAO [18]=CLASSIF [19]=CARGO [20]=SALARIO) ──
+      cdData.ativos = [];
+      const wsAt = wb.Sheets['Ativos'];
+      if (wsAt) toArr(wsAt).slice(1).forEach(r => {
+        const nome = str(r[8]); if (!nome) return;
+        cdData.ativos.push({
+          empresa:str(r[0]), area:str(r[4]), gestor:str(r[5]),
+          matricula:str(r[7]), nome, genero:str(r[9]), sexo:str(r[10]), raca:str(r[11]),
+          dtAdm:toDate(r[13]), dtFimExp:toDate(r[15]),
+          diasExp:num(r[14]), classificacao:str(r[18]),
+          cargo:str(r[19]), salario:num(r[20]),
+          cidade:str(r[22]), estado:str(r[23]),
+        });
+      });
+
+      // ── HEADCOUNT (transposto: linha 0=cabeçalho meses, linhas 1-3=dados) ──
+      cdData.headcount = [];
+      const wsHC = wb.Sheets['Headcount'];
+      if (wsHC) {
+        const raw = toArr(wsHC);
+        const header  = raw[0] || [];
+        const rowIni  = raw.find(r => str(r[0]).toLowerCase().includes('in')) || [];
+        const rowFim  = raw.find(r => str(r[0]).toLowerCase().includes('fin') || str(r[0]).toLowerCase().includes('fim')) || [];
+        const rowHC   = raw.find(r => str(r[0]).toLowerCase().includes('headcount')) || [];
+        header.forEach((mesNome, ci) => {
+          if (ci === 0) return;
+          const mes = normMes(mesNome);
+          const hcVal = rowHC[ci];
+          if (mes && hcVal != null && typeof hcVal === 'number' && !isNaN(hcVal)) {
+            cdData.headcount.push({mes, mesNome:str(mesNome), atvsIni:num(rowIni[ci]), atvsFim:num(rowFim[ci]), hc:num(hcVal)});
+          }
+        });
+      }
+
+      // ── OFFBOARDING (idêntico à Yandeh) ──
+      cdData.offboarding = [];
+      const wsOff = wb.Sheets['Offboarding'];
+      if (wsOff) toArr(wsOff).slice(1).forEach(r => {
+        const nome = str(r[0]); if (!nome) return;
+        cdData.offboarding.push({
+          nome, area:str(r[1]), gestor:str(r[2]), cargo:str(r[3]),
+          classificacao:str(r[4]), diasTrabalhados:num(r[5]),
+          tipo:str(r[6]), motivo:str(r[7]),
+          mes:normMes(r[8]), periodo:str(r[9]),
+          dtAdm:toDate(r[10]), dtDem:toDate(r[11]),
+        });
+      });
+
+      // ── MOVIMENTAÇÕES (idêntico à Yandeh) ──
+      cdData.moviment = [];
+      const wsMov = wb.Sheets['Movimentações Internas'];
+      if (wsMov) toArr(wsMov).slice(1).forEach(r => {
+        const nome = str(r[0]); if (!nome) return;
+        cdData.moviment.push({
+          nome, ccAtual:str(r[1]), ccNovo:str(r[2]),
+          areaAtual:str(r[3]), areaNova:str(r[4]),
+          dirAtual:str(r[5]), dirNova:str(r[6]),
+          gestorAtual:str(r[7]), gestorNovo:str(r[8]),
+          cargoAtual:str(r[9]), cargoNovo:str(r[10]),
+          pctAumento:str(r[11]), motivoGeral:str(r[12]),
+          motivo:str(r[13]), mes:normMes(r[14]),
+        });
+      });
+
+      // ── ATESTADOS (aba chama "Atestados" no CD, "Atestado" na Yandeh) ──
+      cdData.atestados = [];
+      const wsAtes = wb.Sheets['Atestados'] || wb.Sheets['Atestado'];
+      if (wsAtes) toArr(wsAtes).slice(1).forEach(r => {
+        const nome = str(r[0]); if (!nome) return;
+        cdData.atestados.push({
+          nome, area:str(r[1]), cargo:str(r[2]),
+          classificacao:str(r[3]), dtAdmissao:toDate(r[4]),
+          dtInicioAfast:toDate(r[5]), dtFimAfast:toDate(r[6]),
+          diasAfast:num(r[7]), diasAuxDoenca:num(r[8]),
+          motivo:str(r[9]), cid:str(r[10]),
+          mes:normMes(r[11]), salario:num(r[12]),
+        });
+      });
+
+      // ── COTAS (transposto, igual Yandeh) ──
+      const parseCota = wsName => {
+        const ws = wb.Sheets[wsName]; if (!ws) return [];
+        const raw = toArr(ws);
+        const header   = raw[0] || [];
+        const rowAtiv  = raw.find(r => str(r[0]).toLowerCase().includes('atual')) || [];
+        const rowCotaM = raw.find(r => str(r[0]).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes('minima')) || [];
+        return header.slice(1).map((mesNome, i) => {
+          const mes = normMes(mesNome); if (!mes) return null;
+          return {mes, cotaMin:num(rowCotaM[i+1]), cotaAtual:num(rowAtiv[i+1]), contratar:0};
+        }).filter(Boolean);
+      };
+      cdData.cotasPcd = parseCota('Cotas (PCD)');
+      cdData.cotasJa  = parseCota('Cotas (JA)');
+
+      // ── ABS ──
+      cdData.abs = [];
+      const wsAbs = wb.Sheets['ABS'];
+      if (wsAbs) toArr(wsAbs).slice(1).forEach(r => {
+        const dt = toDate(r[0]); if (!dt) return;
+        const mes = String(dt.getUTCMonth()+1).padStart(2,'0');
+        cdData.abs.push({data:dt, mes, presencaPrevista:num(r[1]), presentes:num(r[2]), pctPresenca:num(r[3]), abs:num(r[4]), pctAbs:num(r[5])});
+      });
+
+      // ── ADMISSÕES (coluna 0=Nome, 1=Cargo, 2=Time, 3=Gestor, 4=Data início, 5=Mês) ──
+      cdData.admissoes = [];
+      const wsAdmCD = wb.Sheets['Admissões'] || wb.Sheets['Admissoes'];
+      if (wsAdmCD) toArr(wsAdmCD).slice(1).forEach(r => {
+        const nome = str(r[0]); if (!nome) return;
+        const mes = normMes(r[5]) || normMes(r[4]);
+        if (mes) cdData.admissoes.push({nome, cargo:str(r[1]), gestor:str(r[3]), mes});
+      });
+
+      // ── R&S ──
+      cdData.rs = [];
+      const wsRS = wb.Sheets['R&S'];
+      if (wsRS) toArr(wsRS).slice(1).forEach(r => {
+        const cargo = str(r[5]); if (!cargo) return;  // [5]=CARGO
+        const status = str(r[19]).toLowerCase();       // [19]=STATUS
+        const dtAb   = toDate(r[16]);                  // [16]=DATA ABERTURA
+        const dtFech = toDate(r[17]);                  // [17]=DATA FECHAMENTO
+        const mesAb  = dtAb   ? String(dtAb.getUTCMonth()+1).padStart(2,'0') : null;
+        const mesFech= r[24]  ? String(r[24]).padStart(2,'0')                 // [24]=MÊS FECHAMENTO
+                     : dtFech ? String(dtFech.getUTCMonth()+1).padStart(2,'0') : null;
+        cdData.rs.push({
+          area:str(r[1]), gestor:str(r[4]), cargo,       // [1]=ÁREA [4]=GESTOR
+          nivel:str(r[6]),                               // [6]=NÍVEL
+          salario:num(r[13]),                            // [13]=SALÁRIO
+          motivo:str(r[8]),                              // [8]=MOTIVO
+          slaUteis:num(r[18]),                           // [18]=SLA UTEIS
+          status, dataAbertura:dtAb, dataFechamento:dtFech,
+          mesAbertura:mesAb, mesFechamento:mesFech,
+          declinio: num(r[20]) > 0,                      // [20]=DECLINIO (Quantidade)
+          fonte:str(r[25]),                              // [25]=FONTE DE CONTRATAÇÃO
+          nomeContratado:str(r[23]),                     // [23]=NOME CONTRATADO
+          timeToFill: null, timeToStart: null,
+        });
+      });
+
+      cdData.hasData = true;
+      console.log('[CD] Ativos:', cdData.ativos.length, '| HC:', cdData.headcount.length, '| OFF:', cdData.offboarding.length, '| MOV:', cdData.moviment.length, '| ATES:', cdData.atestados.length, '| ADM:', cdData.admissoes.length, '| ABS:', cdData.abs.length);
+
+      // Badge CD
+      const badgeCD = document.getElementById('fileBadgeCD');
+      const nameCD  = document.getElementById('fileNameBadgeCD');
+      if (badgeCD) badgeCD.style.display = 'flex';
+      if (nameCD)  nameCD.textContent = file.name;
+      document.getElementById('lastUpdate').textContent =
+        new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+
+      toast('Planilha Girotrade CD importada!', 'success');
+      renderCDSection(cdCurrentCategory||'cd-dashboard');
+
+    } catch(err) { console.error('[CD] Erro:', err); toast('Erro ao importar CD: '+err.message,'error'); }
+  };
+  reader.readAsArrayBuffer(file);
+  e.target.value = '';
+}
+
 function switchCategory(cat) {
   currentCategory = cat;
 
-  document.querySelectorAll('.nav-item').forEach(b => {
-    b.classList.toggle('active', b.dataset.category === cat);
-  });
+  // Só marca nav Yandeh quando não está no dashboard CD
+  if (currentDashboard !== 'cd') {
+    document.querySelectorAll('#navYandeh .nav-item').forEach(b => {
+      b.classList.toggle('active', b.dataset.category === cat);
+    });
+  }
+
   document.querySelectorAll('.category-section').forEach(s => s.classList.remove('active'));
-  document.getElementById(cat).classList.add('active');
+  document.getElementById(cat)?.classList.add('active');
 
   // "Report Semanal" só fica visível no sidebar quando se está em
   // Recrutamento & Seleção ou já dentro do próprio Report Semanal
@@ -327,7 +3245,7 @@ function switchCategory(cat) {
   if (cat === 'atingimentoMetas' && metasData.length) renderAtingimentoMetas();
 
   // Hero subtitle with key number for current category
-  const heroSub = document.getElementById('headerSubtitle');
+  const heroSub = currentDashboard === 'cd' ? null : document.getElementById('headerSubtitle');
   if (heroSub) {
     const mesSel = document.getElementById('month-select').value;
     const MESES_LABEL = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
@@ -353,6 +3271,7 @@ function switchCategory(cat) {
    UPLOAD
 ═══════════════════════════════════════════ */
 function handleUpload(e) {
+  if (e.target.id !== 'file-upload') return; // ignora outros inputs
   const file = e.target.files[0];
   if (!file) return;
 
@@ -402,6 +3321,7 @@ function handleUpload(e) {
           else out.DiasAfastamento = Number(r['DIAS DE AFASTAMENTO'] || 0);
           // Coluna J — tipo (doença, acidente, etc.)
           if (nomeColJ && r[nomeColJ] !== undefined) out.TipoAfastamento = String(r[nomeColJ]).trim();
+          else out.TipoAfastamento = '';
           // Coluna F — data início afastamento
           const rawF = nomeColF ? r[nomeColF] : (r['DATA INÍCIO AFASTAMENTO'] || r['DATA INICIO AFASTAMENTO'] || null);
           out.DtInicioAfast = toDate(rawF);
@@ -411,7 +3331,7 @@ function handleUpload(e) {
           out.Tipo = 'Atestado';
           out.Mes  = getMesReferencia(out);
           return out;
-        });
+        }).filter(r => String(r.Nome||'').trim() !== '');
       }
 
       /* ── ABA HEADCOUNT ── */
@@ -794,8 +3714,16 @@ function handleUpload(e) {
       areas.forEach(a => { sel.innerHTML += `<option value="${a}">${a}</option>`; });
 
       destroyCharts();
-      renderKPIs(currentCategory);
-      renderCharts(currentCategory);
+      // Salva dados Yandeh no store permanente
+      _Y.save();
+
+      if (currentDashboard === 'yandeh') {
+        populateMainFilters();
+        switchCategory('dashboard');
+        renderKPIs('dashboard');
+        renderCharts('dashboard');
+      }
+      // Se estiver no CD, os dados Yandeh ficam salvos em _Y mas não renderiza nada
 
       toast('Planilha importada com sucesso!', 'success');
 
@@ -878,6 +3806,9 @@ function handleRsUpload(e) {
 
       console.log('[RS] Linhas importadas:', rsData.length);
       console.log('[RS] Amostra:', rsData[0]);
+
+      // Atualiza o store permanente com o rsData novo
+      _Y.save();
 
       document.getElementById('rsFileBadgeText').textContent = file.name;
       document.getElementById('rsClearBtn').style.display = 'inline-flex';
@@ -1166,6 +4097,11 @@ function toggleOkr(idx) {
 function initTableFilters(tableId) {
   const table = document.getElementById(tableId)?.closest('table') ||
                 document.querySelector(`table:has(#${tableId})`);
+  addColFilters(table);
+}
+
+// Aplica filtros de coluna a qualquer elemento <table> — usado pelo CD e Yandeh
+function addColFilters(table) {
   if (!table) return;
   const thead = table.querySelector('thead');
   if (!thead) return;
@@ -3696,7 +6632,68 @@ function closeExpModal(e) {
 // Fecha com Esc
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeExpModal(); closePeDetail(); } });
 
+function populateMainFilters() {
+  if (!ativosData.length) return;
+  const areaList = document.getElementById('ativosAreaList');
+  if (areaList) {
+    areaList.innerHTML = '';
+    [...new Set(ativosData.map(d=>d.area).filter(Boolean))].sort().forEach(v => {
+      const lbl = document.createElement('label');
+      lbl.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 12px;cursor:pointer;font-size:11.5px;color:var(--text-primary)';
+      lbl.innerHTML = `<input type="checkbox" class="ativosAreaCheck" value="${v}" onchange="ativosUpdateLabel();renderAtivos()"> ${v}`;
+      areaList.appendChild(lbl);
+    });
+  }
+  const gestorList = document.getElementById('ativosGestorList');
+  if (gestorList) {
+    gestorList.innerHTML = '';
+    [...new Set(ativosData.map(d=>d.gestor).filter(Boolean))].sort().forEach(v => {
+      const lbl = document.createElement('label');
+      lbl.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 12px;cursor:pointer;font-size:11.5px;color:var(--text-primary)';
+      lbl.innerHTML = `<input type="checkbox" class="ativosGestorCheck" value="${v}" onchange="ativosUpdateLabel();renderAtivos()"> ${v}`;
+      gestorList.appendChild(lbl);
+    });
+  }
+  // Fecha dropdowns ao clicar fora
+  if (!window._ativosDropOutside) {
+    window._ativosDropOutside = true;
+    document.addEventListener('click', e => {
+      ['ativosArea','ativosGestor'].forEach(id => {
+        const dd  = document.getElementById(id+'Dropdown');
+        const btn = document.getElementById(id+'Btn');
+        if (dd && !dd.contains(e.target) && !btn?.contains(e.target)) dd.classList.remove('open');
+      });
+    });
+  }
+}
+
+function ativosMultiAll(checkClass, labelId, defaultLabel) {
+  document.querySelectorAll('.'+checkClass).forEach(c => c.checked = true);
+  const lbl = document.getElementById(labelId); if(lbl) lbl.textContent = defaultLabel;
+  renderAtivos();
+}
+
+function ativosMultiClear(checkClass, labelId, defaultLabel) {
+  document.querySelectorAll('.'+checkClass).forEach(c => c.checked = false);
+  const lbl = document.getElementById(labelId); if(lbl) lbl.textContent = defaultLabel;
+  renderAtivos();
+}
+
+function ativosUpdateLabel() {
+  const aChecked = document.querySelectorAll('.ativosAreaCheck:checked');
+  const aTotal   = document.querySelectorAll('.ativosAreaCheck');
+  const aLbl     = document.getElementById('ativosAreaLabel');
+  if (aLbl) aLbl.textContent = (!aChecked.length || aChecked.length===aTotal.length) ? 'Todas' : `${aChecked.length} área${aChecked.length>1?'s':''}`;
+  const gChecked = document.querySelectorAll('.ativosGestorCheck:checked');
+  const gTotal   = document.querySelectorAll('.ativosGestorCheck');
+  const gLbl     = document.getElementById('ativosGestorLabel');
+  if (gLbl) gLbl.textContent = (!gChecked.length || gChecked.length===gTotal.length) ? 'Todos' : `${gChecked.length} gestor${gChecked.length>1?'es':''}`;
+}
+
 function renderAtivos() {
+  // Só roda quando a seção dashboard está ativa
+  const dashEl = document.getElementById('dashboard');
+  if (!dashEl || !dashEl.classList.contains('active')) return;
   const panel = document.getElementById('ativosPanel');
   if (!ativosData.length) {
     if (panel) panel.style.display = 'none';
@@ -3704,37 +6701,37 @@ function renderAtivos() {
     if (fallback) fallback.style.display = '';
     return;
   }
-  panel.style.display = 'block';
+  if (panel) panel.style.display = 'block';
   const fallback = document.getElementById('semaforoGridFallback');
   if (fallback) fallback.style.display = 'none';
 
-  const areaFiltro   = document.getElementById('ativosFilterArea')?.value   || '';
-  const gestorFiltro = document.getElementById('ativosFilterGestor')?.value || '';
+  // Filtros multi-select via checkboxes
+  const areasSel   = [...document.querySelectorAll('.ativosAreaCheck:checked')].map(c => c.value);
+  const gestoresSel = [...document.querySelectorAll('.ativosGestorCheck:checked')].map(c => c.value);
 
-  // Repopula selects sempre (preserva seleção atual)
-  const selArea   = document.getElementById('ativosFilterArea');
-  const selGestor = document.getElementById('ativosFilterGestor');
-  if (selArea) {
-    const curArea = selArea.value;
-    selArea.innerHTML = '<option value="">Todas</option>';
-    [...new Set(ativosData.map(d => d.area).filter(Boolean))].sort()
-      .forEach(a => { const o = document.createElement('option'); o.value = a; o.textContent = a; selArea.appendChild(o); });
-    selArea.value = curArea;
+  // Popula checkboxes se ainda vazios
+  const areaList = document.getElementById('ativosAreaList');
+  if (areaList && areaList.children.length === 0) {
+    [...new Set(ativosData.map(d => d.area).filter(Boolean))].sort().forEach(v => {
+      const lbl = document.createElement('label');
+      lbl.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 12px;cursor:pointer;font-size:11.5px;color:var(--text-primary)';
+      lbl.innerHTML = `<input type="checkbox" class="ativosAreaCheck" value="${v}" onchange="ativosUpdateLabel();renderAtivos()"> ${v}`;
+      areaList.appendChild(lbl);
+    });
   }
-  if (selGestor) {
-    const curGestor = selGestor.value;
-    selGestor.innerHTML = '<option value="">Todos</option>';
-    // Gestores filtrados pela área selecionada (se houver)
-    const gestoresFiltrados = [...new Set(
-      ativosData.filter(d => !areaFiltro || d.area === areaFiltro).map(d => d.gestor).filter(Boolean)
-    )].sort();
-    gestoresFiltrados.forEach(g => { const o = document.createElement('option'); o.value = g; o.textContent = g; selGestor.appendChild(o); });
-    selGestor.value = curGestor;
+  const gestorList = document.getElementById('ativosGestorList');
+  if (gestorList && gestorList.children.length === 0) {
+    [...new Set(ativosData.map(d => d.gestor).filter(Boolean))].sort().forEach(v => {
+      const lbl = document.createElement('label');
+      lbl.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 12px;cursor:pointer;font-size:11.5px;color:var(--text-primary)';
+      lbl.innerHTML = `<input type="checkbox" class="ativosGestorCheck" value="${v}" onchange="ativosUpdateLabel();renderAtivos()"> ${v}`;
+      gestorList.appendChild(lbl);
+    });
   }
 
   const filtered = ativosData.filter(d =>
-    (!areaFiltro   || d.area   === areaFiltro) &&
-    (!gestorFiltro || d.gestor === gestorFiltro)
+    (areasSel.length   === 0 || areasSel.includes(d.area)) &&
+    (gestoresSel.length === 0 || gestoresSel.includes(d.gestor))
   );
 
   // ── 1. Headcount: gráfico (sem mês) OU cards início/fim (com mês) ──
@@ -3794,8 +6791,8 @@ function renderAtivos() {
   // ── 2. Folha de pagamento ──
   const totalFolha = filtered.reduce((s, d) => s + (d.salario || 0), 0);
   const fmtMoeda = v => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 });
-  document.getElementById('ativosFolha').textContent     = fmtMoeda(totalFolha);
-  document.getElementById('ativosFolhaSub').textContent  = `${filtered.length} colaboradores`;
+  { const _el=document.getElementById('ativosFolha'); if(_el) _el.textContent= fmtMoeda(totalFolha); }
+  { const _el=document.getElementById('ativosFolhaSub'); if(_el) _el.textContent= `${filtered.length} colaboradores`; }
 
   // ── 3. Tempo médio de casa ──
   const hoje = new Date();
@@ -3810,7 +6807,7 @@ function renderAtivos() {
     else if (meses === 0) tempoCasaMedia = `${anos}a`;
     else tempoCasaMedia = `${anos}a ${meses}m`;
   }
-  document.getElementById('ativosTempoCasa').textContent = tempoCasaMedia;
+  { const _el=document.getElementById('ativosTempoCasa'); if(_el) _el.textContent= tempoCasaMedia; }
 
   // ── 4. Períodos de experiência (respeita filtro de área/gestor) ──
   const exp45 = filtered.filter(d => {
@@ -3823,8 +6820,8 @@ function renderAtivos() {
     const dias = (hoje - d.dtAdm) / (24 * 3600 * 1000);
     return dias > 45 && dias <= 90;
   });
-  document.getElementById('ativosExp45').textContent = exp45.length;
-  document.getElementById('ativosExp90').textContent = exp90.length;
+  { const _el=document.getElementById('ativosExp45'); if(_el) _el.textContent= exp45.length; }
+  { const _el=document.getElementById('ativosExp90'); if(_el) _el.textContent= exp90.length; }
 
   // Tooltips: construção do HTML (exibição via CSS hover no .ativos-exp-card)
   const buildTooltip = (id, pessoas) => {
